@@ -1,0 +1,31 @@
+name: Frontend CI
+
+on:
+  push:
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend.yml'
+  pull_request:
+    paths:
+      - 'frontend/**'
+
+jobs:
+  frontend-ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install deps
+        run: |
+          cd frontend
+          npm ci
+      - name: Test
+        run: |
+          cd frontend
+          npm run test
+      - name: Build
+        run: |
+          cd frontend
+          npm run build

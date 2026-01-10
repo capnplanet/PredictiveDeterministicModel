@@ -1,0 +1,43 @@
+version: "3.9"
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: analytics
+      POSTGRES_PASSWORD: analytics
+      POSTGRES_DB: analytics
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    environment:
+      PYTHONHASHSEED: "0"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      CUBLAS_WORKSPACE_CONFIG: ":4096:8"
+      APP_ENV: "docker"
+      DATABASE_URL: "postgresql+psycopg2://analytics:analytics@db:5432/analytics"
+    depends_on:
+      - db
+    volumes:
+      - ./data:/app/data
+      - ./artifacts:/app/artifacts
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.frontend
+    depends_on:
+      - backend
+    ports:
+      - "5173:5173"
+
+volumes:
+  db_data:
