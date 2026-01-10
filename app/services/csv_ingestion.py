@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import ast
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -65,7 +66,14 @@ def ingest_entities_csv(session: Session, path: Path) -> IngestionReport:
             if not entity_id:
                 raise ValueError("empty entity_id")
             attrs_raw = row["attributes"].strip()
-            attributes = json.loads(attrs_raw) if attrs_raw else {}
+            if attrs_raw:
+                try:
+                    attributes = json.loads(attrs_raw)
+                except json.JSONDecodeError:
+                    # Fallback for slightly non-JSON dict literals
+                    attributes = ast.literal_eval(attrs_raw)
+            else:
+                attributes = {}
             created_at_str = row.get("created_at", "").strip()
             if created_at_str:
                 created_at = datetime.fromisoformat(created_at_str)
@@ -76,7 +84,12 @@ def ingest_entities_csv(session: Session, path: Path) -> IngestionReport:
             success += 1
         except Exception as exc:  # noqa: BLE001
             failed += 1
-            errors.append(f"Row {total}: {exc}")
+            raw_attrs = row.get("attributes", "")
+            errors.append(f"Row {total}: {exc} [attributes={raw_attrs!r}]")
+
+    # Ensure pending inserts are flushed so callers can query immediately within the same session
+    if success:
+        session.flush()
 
     return IngestionReport(total_rows=total, success_rows=success, failed_rows=failed, errors=errors)
 
@@ -113,6 +126,9 @@ def ingest_events_csv(session: Session, path: Path) -> IngestionReport:
             failed += 1
             errors.append(f"Row {total}: {exc}")
 
+    if success:
+        session.flush()
+
     return IngestionReport(total_rows=total, success_rows=success, failed_rows=failed, errors=errors)
 
 
@@ -142,12 +158,15 @@ def ingest_interactions_csv(session: Session, path: Path) -> IngestionReport:
                 dst_entity_id=dst,
                 interaction_type=itype,
                 interaction_value=ivalue,
-                metadata=metadata,
+                meta=metadata,
             )
             session.add(interaction)
             success += 1
         except Exception as exc:  # noqa: BLE001
             failed += 1
             errors.append(f"Row {total}: {exc}")
+
+    if success:
+        session.flush()
 
     return IngestionReport(total_rows=total, success_rows=success, failed_rows=failed, errors=errors)

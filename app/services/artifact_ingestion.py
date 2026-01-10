@@ -76,7 +76,7 @@ def ingest_artifact_file(
         artifact_type=atype,  # type: ignore[arg-type]
         file_path=str(dest_path),
         sha256=sha256,
-        metadata=metadata or {},
+        meta=metadata or {},
     )
     session.add(artifact)
     session.flush()

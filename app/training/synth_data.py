@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Tuple
 
+import json
 import numpy as np
 from PIL import Image
 import soundfile as sf
@@ -41,7 +42,9 @@ def _generate_entities(out_dir: Path, n_entities: int, factors: np.ndarray) -> N
                 "target_ranking": target_rank,
             }
             created_at = now + timedelta(seconds=i)
-            f.write(f"{eid},"""{attrs}""",{created_at.isoformat()}\n".replace("'", '"'))
+            attrs_json = json.dumps(attrs, separators=(",", ":"))
+            attrs_field = '"' + attrs_json.replace('"', '""') + '"'
+            f.write(f"{eid},{attrs_field},{created_at.isoformat()}\n")
 
 
 def _generate_events(out_dir: Path, n_events: int, n_entities: int, factors: np.ndarray) -> None:
@@ -57,7 +60,9 @@ def _generate_events(out_dir: Path, n_events: int, n_entities: int, factors: np.
             value = x * math.sin(i / 10.0) + y * math.cos(i / 7.0) + 0.1 * z
             ts = base_time + timedelta(seconds=i)
             metadata = {"phase": int(i % 4)}
-            row = f"{ts.isoformat()},{eid},{event_type},{value},"""{metadata}"""\n".replace("'", '"')
+            metadata_json = json.dumps(metadata, separators=(",", ":"))
+            metadata_field = '"' + metadata_json.replace('"', '""') + '"'
+            row = f"{ts.isoformat()},{eid},{event_type},{value},{metadata_field}\n"
             f.write(row)
 
 
@@ -77,7 +82,9 @@ def _generate_interactions(out_dir: Path, n_interactions: int, n_entities: int, 
             value = xs * xd + ys * yd + zs * zd
             ts = base_time + timedelta(seconds=i)
             metadata = {"strength": float(value)}
-            row = f"{ts.isoformat()},{src_e},{dst_e},{itype},{value},"""{metadata}"""\n".replace("'", '"')
+            metadata_json = json.dumps(metadata, separators=(",", ":"))
+            metadata_field = '"' + metadata_json.replace('"', '""') + '"'
+            row = f"{ts.isoformat()},{src_e},{dst_e},{itype},{value},{metadata_field}\n"
             f.write(row)
 
 
@@ -164,7 +171,9 @@ def _generate_artifacts(out_dir: Path, n_artifacts: int, n_entities: int, factor
                 path = artifacts_dir / rel
                 _write_video(path, frames)
             meta = {"kind_index": int(i % 3)}
-            row = f"{kind},{path},{eid},{ts.isoformat()},"""{meta}"""\n".replace("'", '"')
+            meta_json = json.dumps(meta, separators=(",", ":"))
+            meta_field = '"' + meta_json.replace('"', '""') + '"'
+            row = f"{kind},{path},{eid},{ts.isoformat()},{meta_field}\n"
             f.write(row)
 
 

@@ -38,24 +38,16 @@ def upgrade() -> None:
         sa.Column("metadata", sa.JSON(), nullable=False),
     )
 
-    artifact_type = sa.Enum("image", "video", "audio", name="artifact_type")
-    feature_status = sa.Enum("pending", "done", "failed", name="feature_status")
-    run_status = sa.Enum("success", "failed", name="run_status")
-
-    artifact_type.create(op.get_bind(), checkfirst=True)
-    feature_status.create(op.get_bind(), checkfirst=True)
-    run_status.create(op.get_bind(), checkfirst=True)
-
     op.create_table(
         "artifacts",
         sa.Column("artifact_id", sa.dialects.postgresql.UUID(as_uuid=True), primary_key=True),
         sa.Column("entity_id", sa.String(), sa.ForeignKey("entities.entity_id"), nullable=True),
         sa.Column("timestamp", sa.DateTime(), nullable=True),
-        sa.Column("artifact_type", artifact_type, nullable=False),
+        sa.Column("artifact_type", sa.Enum("image", "video", "audio", name="artifact_type"), nullable=False),
         sa.Column("file_path", sa.Text(), nullable=False),
         sa.Column("sha256", sa.String(), nullable=False, unique=True),
         sa.Column("metadata", sa.JSON(), nullable=False),
-        sa.Column("feature_status", feature_status, nullable=False),
+        sa.Column("feature_status", sa.Enum("pending", "done", "failed", name="feature_status"), nullable=False),
         sa.Column("feature_dim", sa.Integer(), nullable=True),
         sa.Column("feature_version_hash", sa.String(), nullable=True),
     )
@@ -68,7 +60,7 @@ def upgrade() -> None:
         sa.Column("metrics", sa.JSON(), nullable=False),
         sa.Column("model_sha256", sa.String(), nullable=False),
         sa.Column("data_manifest", sa.JSON(), nullable=False),
-        sa.Column("status", run_status, nullable=False),
+        sa.Column("status", sa.Enum("success", "failed", name="run_status"), nullable=False),
         sa.Column("logs_path", sa.Text(), nullable=False),
     )
 

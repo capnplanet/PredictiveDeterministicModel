@@ -14,6 +14,7 @@ from app.services.csv_ingestion import (
     ingest_interactions_csv,
 )
 from app.services.feature_extraction import extract_features_for_pending
+from app.services.parquet_export import export_parquet
 from app.training.synth_data import generate_synthetic_dataset
 from app.training.train import run_training, reproduce_run, run_determinism_check
 
@@ -101,6 +102,13 @@ def determinism_check() -> None:
     """Run an end-to-end determinism verification on a small synthetic subset."""
     report = run_determinism_check()
     typer.echo(json.dumps(report, indent=2))
+
+
+@cli.command("export-parquet")
+def export_parquet_cmd(out_dir: Path = Path("data/parquet")) -> None:
+    """Export core tables to Parquet files."""
+    result = export_parquet(out_dir)
+    typer.echo(json.dumps(result, indent=2))
 
 
 def main() -> None:

@@ -55,7 +55,7 @@ class Interaction(Base):
     dst_entity_id = Column(String, ForeignKey("entities.entity_id"), nullable=False)
     interaction_type = Column(String, nullable=False)
     interaction_value = Column(Float, nullable=False)
-    metadata = Column(JSON, nullable=False, default=dict)
+    meta = Column("metadata", JSON, nullable=False, default=dict)
 
     src_entity = relationship("Entity", foreign_keys=[src_entity_id])
     dst_entity = relationship("Entity", foreign_keys=[dst_entity_id])
@@ -75,7 +75,7 @@ class Artifact(Base):
     artifact_type = Column(ArtifactType, nullable=False)
     file_path = Column(Text, nullable=False)
     sha256 = Column(String, nullable=False, unique=True)
-    metadata = Column(JSON, nullable=False, default=dict)
+    meta = Column("metadata", JSON, nullable=False, default=dict)
     feature_status = Column(FeatureStatus, nullable=False, default="pending")
     feature_dim = Column(Integer, nullable=True)
     feature_version_hash = Column(String, nullable=True)

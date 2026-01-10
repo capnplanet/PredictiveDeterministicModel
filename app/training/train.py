@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -16,6 +17,7 @@ from torch.utils.data import DataLoader, Dataset
 from app.core.config import get_settings
 from app.db.models import Artifact, Entity, ModelRun
 from app.db.session import session_scope
+from app.db.models import Artifact, Event, Interaction, Entity, ModelRun
 from app.ml.feature_version import compute_feature_version_hash
 from app.training.model import (
     EncoderConfig,
@@ -25,6 +27,14 @@ from app.training.model import (
     ranking_metrics,
     regression_metrics,
 )
+from app.training.synth_data import generate_synthetic_dataset
+from app.services.csv_ingestion import (
+    ingest_entities_csv,
+    ingest_events_csv,
+    ingest_interactions_csv,
+)
+from app.services.artifact_ingestion import ingest_artifacts_manifest
+from app.services.feature_extraction import extract_features_for_pending
 
 
 @dataclass
@@ -44,7 +54,11 @@ def _set_determinism(seed: int) -> None:
     random.seed(seed)
     torch.use_deterministic_algorithms(True)
     torch.set_num_threads(1)
-    torch.set_num_interop_threads(1)
+    try:
+        torch.set_num_interop_threads(1)
+    except RuntimeError:
+        # If threads were already configured by a prior run in this process, keep existing value.
+        pass
 
 
 def _load_artifact_features(artifact: Artifact) -> Optional[np.ndarray]:
@@ -256,9 +270,58 @@ def reproduce_run(run_id: str) -> Dict[str, object]:
 
     new_model_sha = (Path(settings.artifacts_root) / new_run_id / "model_sha256.txt").read_text().strip()
 
+    # Compare predictions on a deterministic subset of entities
+    _set_determinism(int(orig_cfg_dict.get("seed", 1234)))
+    id_to_idx, attr_vec_np, y_reg_np, y_bin_np, y_rank_np, _, _ = _build_entity_tensors()
+    n_entities = len(id_to_idx)
+    subset = min(16, n_entities)
+    if subset == 0:
+        raise RuntimeError("No entities available for reproducibility check")
+    indices = np.arange(subset, dtype="int64")
+    attr_tensor = torch.from_numpy(attr_vec_np)[indices]
+
+    encoder_cfg = EncoderConfig()
+    artifact_feat_dim = 32
+    model1 = FullModel(encoder_cfg, attr_input_dim=attr_tensor.shape[1], artifact_feat_dim=artifact_feat_dim)
+    model2 = FullModel(encoder_cfg, attr_input_dim=attr_tensor.shape[1], artifact_feat_dim=artifact_feat_dim)
+
+    def _load_state(target_model: FullModel, rid: str) -> None:
+        settings_local = get_settings()
+        run_dir_local = Path(settings_local.artifacts_root) / rid
+        data = torch.load(run_dir_local / "model.pt", map_location="cpu")
+        target_model.load_state_dict(data["state_dict"])
+        target_model.eval()
+
+    _load_state(model1, run_id)
+    _load_state(model2, new_run_id)
+
+    def _predict(model_inst: FullModel, attr: torch.Tensor) -> torch.Tensor:
+        bsz = attr.size(0)
+        event_type_ids = torch.zeros((bsz, 4), dtype=torch.long)
+        event_values = torch.zeros((bsz, 4, 1), dtype=torch.float32)
+        event_deltas = torch.zeros((bsz, 4, 1), dtype=torch.float32)
+        neighbor_attr = torch.zeros((bsz, 1, encoder_cfg.attr_dim), dtype=torch.float32)
+        neighbor_mask = torch.zeros((bsz, 1), dtype=torch.float32)
+        artifact_feats = torch.zeros((bsz, 1, artifact_feat_dim), dtype=torch.float32)
+        with torch.no_grad():
+            outputs, _, _ = model_inst(
+                event_type_ids=event_type_ids,
+                event_values=event_values,
+                event_deltas=event_deltas,
+                attr_vec=attr,
+                neighbor_attr=neighbor_attr,
+                neighbor_mask=neighbor_mask,
+                artifact_feats=artifact_feats,
+            )
+        return outputs["regression"]
+
+    preds1 = _predict(model1, attr_tensor).detach().cpu().numpy()
+    preds2 = _predict(model2, attr_tensor).detach().cpu().numpy()
+
     same_run_id = new_run_id == run_id
     same_model = new_model_sha == orig_model_sha
     same_metrics = orig_metrics == new_metrics
+    same_predictions = bool(np.array_equal(preds1, preds2))
 
     return {
         "expected_run_id": run_id,
@@ -266,11 +329,61 @@ def reproduce_run(run_id: str) -> Dict[str, object]:
         "same_run_id": same_run_id,
         "same_model_sha": same_model,
         "same_metrics": same_metrics,
+        "same_predictions": same_predictions,
     }
 
 
 def run_determinism_check() -> Dict[str, object]:
-    # For CI speed, train twice with small config and compare.
+    """End-to-end determinism check on a synthetic dataset.
+
+    Steps:
+    - Generate a small synthetic dataset (CSV + artifacts).
+    - Ingest CSVs and artifact manifest into Postgres.
+    - Extract features.
+    - Train twice with the same config.
+    - Compare run_id, metrics, model hash, and predictions.
+    """
+
+    # Reset state (filesystem + database) to make this check idempotent
+    settings = get_settings()
+    synth_dir = Path("data/determinism_synth")
+    artifacts_store = Path(settings.data_root) / "artifacts_store"
+    feature_cache = Path(settings.data_root) / "feature_cache"
+
+    for path in [synth_dir, artifacts_store, feature_cache]:
+        if path.exists():
+            shutil.rmtree(path)
+        path.mkdir(parents=True, exist_ok=True)
+
+    with session_scope() as session:
+        session.query(Artifact).delete()
+        session.query(ModelRun).delete()
+        session.query(Interaction).delete()
+        session.query(Event).delete()
+        session.query(Entity).delete()
+
+    # Generate synthetic data
+    generate_synthetic_dataset(
+        out_dir=synth_dir,
+        n_entities=64,
+        n_events=512,
+        n_interactions=256,
+        n_artifacts=64,
+        seed=2024,
+    )
+
+    # Ingest into DB
+    with session_scope() as session:
+        ingest_entities_csv(session, synth_dir / "entities.csv")
+        ingest_events_csv(session, synth_dir / "events.csv")
+        ingest_interactions_csv(session, synth_dir / "interactions.csv")
+
+    # Artifact ingest + feature extraction
+    with session_scope() as session:
+        ingest_artifacts_manifest(session, synth_dir / "artifacts_manifest.csv")
+        extract_features_for_pending(session)
+
+    # Training with fixed config
     small_cfg = TrainConfig(epochs=1, batch_size=16, lr=1e-3, seed=1234)
     tmp_cfg_path = Path("data/determinism_train_config.json")
     tmp_cfg_path.parent.mkdir(parents=True, exist_ok=True)
@@ -279,9 +392,52 @@ def run_determinism_check() -> Dict[str, object]:
     run_id1, metrics1 = run_training(config_path=tmp_cfg_path)
     run_id2, metrics2 = run_training(config_path=tmp_cfg_path)
 
-    settings = get_settings()
     sha1 = (Path(settings.artifacts_root) / run_id1 / "model_sha256.txt").read_text().strip()
     sha2 = (Path(settings.artifacts_root) / run_id2 / "model_sha256.txt").read_text().strip()
+
+    # Compare predictions on a deterministic subset
+    id_to_idx, attr_vec_np, _, _, _, _, _ = _build_entity_tensors()
+    n_entities = len(id_to_idx)
+    subset = min(16, n_entities)
+    indices = np.arange(subset, dtype="int64")
+    attr_tensor = torch.from_numpy(attr_vec_np)[indices]
+
+    encoder_cfg = EncoderConfig()
+    artifact_feat_dim = 32
+    model1 = FullModel(encoder_cfg, attr_input_dim=attr_tensor.shape[1], artifact_feat_dim=artifact_feat_dim)
+    model2 = FullModel(encoder_cfg, attr_input_dim=attr_tensor.shape[1], artifact_feat_dim=artifact_feat_dim)
+
+    def _load_state(run_id_local: str, model_inst: FullModel) -> None:
+        run_dir_local = Path(settings.artifacts_root) / run_id_local
+        data = torch.load(run_dir_local / "model.pt", map_location="cpu")
+        model_inst.load_state_dict(data["state_dict"])
+        model_inst.eval()
+
+    _load_state(run_id1, model1)
+    _load_state(run_id2, model2)
+
+    def _predict(model_inst: FullModel) -> np.ndarray:
+        bsz = attr_tensor.size(0)
+        event_type_ids = torch.zeros((bsz, 4), dtype=torch.long)
+        event_values = torch.zeros((bsz, 4, 1), dtype=torch.float32)
+        event_deltas = torch.zeros((bsz, 4, 1), dtype=torch.float32)
+        neighbor_attr = torch.zeros((bsz, 1, encoder_cfg.attr_dim), dtype=torch.float32)
+        neighbor_mask = torch.zeros((bsz, 1), dtype=torch.float32)
+        artifact_feats = torch.zeros((bsz, 1, artifact_feat_dim), dtype=torch.float32)
+        with torch.no_grad():
+            outputs, _, _ = model_inst(
+                event_type_ids=event_type_ids,
+                event_values=event_values,
+                event_deltas=event_deltas,
+                attr_vec=attr_tensor,
+                neighbor_attr=neighbor_attr,
+                neighbor_mask=neighbor_mask,
+                artifact_feats=artifact_feats,
+            )
+        return outputs["regression"].detach().cpu().numpy()
+
+    preds1 = _predict(model1)
+    preds2 = _predict(model2)
 
     return {
         "run_id1": run_id1,
@@ -289,4 +445,5 @@ def run_determinism_check() -> Dict[str, object]:
         "same_run_id": run_id1 == run_id2,
         "same_metrics": metrics1 == metrics2,
         "same_model_sha": sha1 == sha2,
+        "same_predictions": bool(np.array_equal(preds1, preds2)),
     }
