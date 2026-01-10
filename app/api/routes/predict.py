@@ -2,21 +2,20 @@ from __future__ import annotations
 
 from typing import Dict, List, Tuple
 
-import numpy as np
 import torch
 from fastapi import APIRouter
 from sqlalchemy import select
 
 from app.api.schemas import (
+    ArtifactAttribution,
     AttentionExplanation,
     EntityExplanation,
     EntityPrediction,
     PredictRequest,
     PredictResponse,
-    ArtifactAttribution,
 )
 from app.core.config import get_settings
-from app.db.models import Artifact, Entity, ModelRun
+from app.db.models import Entity, ModelRun
 from app.db.session import session_scope
 from app.training.model import EncoderConfig, FullModel
 
@@ -36,21 +35,21 @@ def _load_latest_run_id(session) -> str:
 
 
 def _load_model(run_id: str) -> Tuple[FullModel, Dict[str, float]]:
-    settings = get_settings()
-    run_dir = (settings.artifacts_root if isinstance(settings.artifacts_root, str) else str(settings.artifacts_root))
     from pathlib import Path
     import json
 
-    path = Path(run_dir) / run_id / "model.pt"
+    settings = get_settings()
+    run_dir = Path(settings.artifacts_root)
+
+    path = run_dir / run_id / "model.pt"
     if not path.exists():
         raise RuntimeError(f"Model file not found for run {run_id}")
     data = torch.load(path, map_location="cpu")
-    cfg_dict = data.get("config", {})
     encoder_cfg = EncoderConfig()
     model = FullModel(encoder_cfg, attr_input_dim=3, artifact_feat_dim=32)
     model.load_state_dict(data["state_dict"])
     model.eval()
-    metrics_path = Path(run_dir) / run_id / "metrics.json"
+    metrics_path = run_dir / run_id / "metrics.json"
     metrics: Dict[str, float] = {}
     if metrics_path.exists():
         metrics = json.loads(metrics_path.read_text())
@@ -168,7 +167,6 @@ async def predict(request: PredictRequest) -> PredictResponse:
 
     for i, eid in enumerate(entity_ids):
         reg = float(outputs["regression"][i].item())
-        logit = float(outputs["logit"][i].item())
         prob = float(torch.sigmoid(outputs["logit"][i]).item())
         score = float(outputs["score"][i].item())
         emb_list = fused_emb[i].detach().cpu().numpy().tolist()
@@ -183,7 +181,8 @@ async def predict(request: PredictRequest) -> PredictResponse:
             art_contrib = _artifact_attributions(model, attr_single, artifact_single)
             # Map artifact contributions to synthetic single-artifact slots
             art_attr = [
-                ArtifactAttribution(sha256=f"synthetic_{idx}", contribution=val) for idx, val in enumerate(art_contrib)
+                ArtifactAttribution(sha256=f"synthetic_{idx}", contribution=val)
+                for idx, val in enumerate(art_contrib)
             ]
             explanation = EntityExplanation(
                 fused_attribution=fused_attr,

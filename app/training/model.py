@@ -31,13 +31,17 @@ class EventSequenceEncoder(nn.Module):
         )
         self.layernorm = nn.LayerNorm(d_model)
 
-    def forward(self, type_ids: Tensor, values: Tensor, deltas: Tensor) -> Tuple[Tensor, Tensor]:
+    def forward(
+        self, type_ids: Tensor, values: Tensor, deltas: Tensor
+    ) -> Tuple[Tensor, Tensor]:
         # type_ids: [B, T] long, values/deltas: [B, T, 1]
         h_type = self.type_emb(type_ids)
         h_val = self.value_proj(values)
         h_time = self.time_proj(deltas)
         h = h_type + h_val + h_time
-        attn_out, attn_weights = self.attn(h, h, h, need_weights=True, average_attn_weights=False)
+        attn_out, attn_weights = self.attn(
+            h, h, h, need_weights=True, average_attn_weights=False
+        )
         h2 = self.layernorm(h + attn_out)
         h3 = self.layernorm(h2 + self.ff(h2))
         # Pool by mean over time
@@ -113,14 +117,23 @@ class MultiTaskHead(nn.Module):
 
 
 class FullModel(nn.Module):
-    def __init__(self, encoder_cfg: EncoderConfig, attr_input_dim: int, artifact_feat_dim: int) -> None:
+    def __init__(
+        self, encoder_cfg: EncoderConfig, attr_input_dim: int, artifact_feat_dim: int
+    ) -> None:
         super().__init__()
         self.event_encoder = EventSequenceEncoder(d_model=encoder_cfg.event_dim)
         self.attr_encoder = AttrEncoder(in_dim=attr_input_dim, out_dim=encoder_cfg.attr_dim)
-        self.graph_encoder = GraphEncoder(input_dim=encoder_cfg.attr_dim * 2, output_dim=encoder_cfg.graph_dim)
-        self.artifact_encoder = ArtifactEncoder(feat_dim=artifact_feat_dim, output_dim=encoder_cfg.artifact_dim)
+        self.graph_encoder = GraphEncoder(
+            input_dim=encoder_cfg.attr_dim * 2, output_dim=encoder_cfg.graph_dim
+        )
+        self.artifact_encoder = ArtifactEncoder(
+            feat_dim=artifact_feat_dim, output_dim=encoder_cfg.artifact_dim
+        )
         self.fused_proj = nn.Linear(
-            encoder_cfg.event_dim + encoder_cfg.graph_dim + encoder_cfg.artifact_dim + encoder_cfg.attr_dim,
+            encoder_cfg.event_dim
+            + encoder_cfg.graph_dim
+            + encoder_cfg.artifact_dim
+            + encoder_cfg.attr_dim,
             encoder_cfg.fused_dim,
         )
         self.head = MultiTaskHead(fused_dim=encoder_cfg.fused_dim)
@@ -187,7 +200,8 @@ def classification_metrics(logit: Tensor, target: Tensor) -> Dict[str, float]:
     precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
     recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
     f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
-    # For simplicity, we approximate ROC AUC and PR AUC with threshold-0.5 values here.
+    # For simplicity, we approximate ROC AUC and PR AUC
+    # with threshold-0.5 values here.
     return {"f1": f1, "precision": precision, "recall": recall}
 
 
@@ -201,7 +215,9 @@ def ranking_metrics(scores: Tensor, targets: Tensor) -> Dict[str, float]:
     _, idx_true = targets.sort(descending=True)
 
     gains = 2 ** targets[idx_pred[:k]] - 1
-    discounts = torch.log2(torch.arange(2, k + 2, dtype=torch.float32, device=scores.device))
+    discounts = torch.log2(
+        torch.arange(2, k + 2, dtype=torch.float32, device=scores.device)
+    )
     dcg = (gains / discounts).sum().item()
 
     ideal_gains = 2 ** targets[idx_true[:k]] - 1
@@ -210,9 +226,13 @@ def ranking_metrics(scores: Tensor, targets: Tensor) -> Dict[str, float]:
 
     # Spearman rank correlation (simple implementation)
     rank_pred = torch.zeros_like(scores)
-    rank_pred[idx_pred] = torch.arange(1, n + 1, dtype=torch.float32, device=scores.device)
+    rank_pred[idx_pred] = torch.arange(
+        1, n + 1, dtype=torch.float32, device=scores.device
+    )
     rank_true = torch.zeros_like(scores)
-    rank_true[idx_true] = torch.arange(1, n + 1, dtype=torch.float32, device=scores.device)
+    rank_true[idx_true] = torch.arange(
+        1, n + 1, dtype=torch.float32, device=scores.device
+    )
     cov = ((rank_pred - rank_pred.mean()) * (rank_true - rank_true.mean())).mean().item()
     var_p = rank_pred.var().item()
     var_t = rank_true.var().item()

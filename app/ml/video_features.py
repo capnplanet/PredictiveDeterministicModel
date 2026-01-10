@@ -6,8 +6,6 @@ from typing import Tuple
 import cv2
 import numpy as np
 
-from app.ml.image_features import extract_image_features
-
 
 def extract_video_features(path: Path) -> Tuple[np.ndarray, int]:
     cap = cv2.VideoCapture(str(path))
@@ -26,10 +24,8 @@ def extract_video_features(path: Path) -> Tuple[np.ndarray, int]:
             break
         if frame_idx % frame_step == 0:
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            tmp_path = path  # path is only used for hashing; we reuse image pipeline with array
             # Reuse image features by writing to a temporary in-memory image would be ideal,
             # but to avoid extra IO we compute simplified features here.
-            arr = rgb.astype("float32") / 255.0
             gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY).astype("float32") / 255.0
             hist_gray, _ = np.histogram(gray, bins=32, range=(0.0, 1.0), density=True)
             feat = hist_gray.astype("float32")

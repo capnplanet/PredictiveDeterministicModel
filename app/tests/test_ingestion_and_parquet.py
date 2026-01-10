@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime
-from pathlib import Path
 import json
+from pathlib import Path
 
-from sqlalchemy import text
-
-from app.db.session import get_engine, session_scope
 from app.db.models import Entity
+from app.db.session import session_scope
 from app.services.csv_ingestion import ingest_entities_csv
 from app.services.parquet_export import export_parquet
 
@@ -36,7 +33,7 @@ def test_ingest_and_parquet_export(tmp_path: Path) -> None:
         assert ent.attributes["x"] == 0.1
 
     out_dir = tmp_path / "parquet"
-    result = export_parquet(out_dir)
+    export_parquet(out_dir)
     for name in ["entities.parquet", "events.parquet", "interactions.parquet", "artifacts.parquet"]:
         assert (out_dir / name).exists()
 

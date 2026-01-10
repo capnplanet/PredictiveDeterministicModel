@@ -68,7 +68,11 @@ def ingest_artifact_file(
     if not dest_path.exists():
         dest_path.write_bytes(source_path.read_bytes())
 
-    atype = ArtifactType.python_type(artifact_type) if hasattr(ArtifactType, "python_type") else artifact_type  # type: ignore[assignment]
+    atype = (
+        ArtifactType.python_type(artifact_type)
+        if hasattr(ArtifactType, "python_type")
+        else artifact_type
+    )  # type: ignore[assignment]
 
     artifact = Artifact(
         entity_id=entity_id,

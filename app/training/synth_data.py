@@ -116,7 +116,9 @@ def _generate_audio(latent: np.ndarray, sr: int = 16000, seconds: float = 1.0) -
     return signal
 
 
-def _generate_video_frames(latent: np.ndarray, frames: int = 8, size: Tuple[int, int] = (64, 64)) -> List[Image.Image]:
+def _generate_video_frames(
+    latent: np.ndarray, frames: int = 8, size: Tuple[int, int] = (64, 64)
+) -> List[Image.Image]:
     x, y, z = latent
     imgs: List[Image.Image] = []
     for k in range(frames):

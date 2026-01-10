@@ -5,7 +5,7 @@ from typing import Tuple
 
 import numpy as np
 from PIL import Image
-from skimage import color, feature, filters
+from skimage import color, feature
 
 
 def _load_image(path: Path) -> Image.Image:
@@ -41,5 +41,7 @@ def extract_image_features(path: Path) -> Tuple[np.ndarray, int]:
     edges = feature.canny(gray, sigma=1.0)
     edge_density = np.array([edges.mean()], dtype="float32")
 
-    feat = np.concatenate([hist_gray, hist_r, hist_g, hist_b, hog_vec.astype("float32"), edge_density])
+    feat = np.concatenate(
+        [hist_gray, hist_r, hist_g, hist_b, hog_vec.astype("float32"), edge_density]
+    )
     return feat.astype("float32"), int(feat.shape[0])

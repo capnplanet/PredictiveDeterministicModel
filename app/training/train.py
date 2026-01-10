@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-import shutil
 import os
+import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -15,9 +15,8 @@ from torch import Tensor, nn
 from torch.utils.data import DataLoader, Dataset
 
 from app.core.config import get_settings
-from app.db.models import Artifact, Entity, ModelRun
+from app.db.models import Artifact, Entity, Event, Interaction, ModelRun
 from app.db.session import session_scope
-from app.db.models import Artifact, Event, Interaction, Entity, ModelRun
 from app.ml.feature_version import compute_feature_version_hash
 from app.training.model import (
     EncoderConfig,
@@ -28,12 +27,12 @@ from app.training.model import (
     regression_metrics,
 )
 from app.training.synth_data import generate_synthetic_dataset
+from app.services.artifact_ingestion import ingest_artifacts_manifest
 from app.services.csv_ingestion import (
     ingest_entities_csv,
     ingest_events_csv,
     ingest_interactions_csv,
 )
-from app.services.artifact_ingestion import ingest_artifacts_manifest
 from app.services.feature_extraction import extract_features_for_pending
 
 
@@ -74,7 +73,15 @@ def _load_artifact_features(artifact: Artifact) -> Optional[np.ndarray]:
     return raw
 
 
-def _build_entity_tensors() -> Tuple[Dict[str, int], np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def _build_entity_tensors() -> Tuple[
+    Dict[str, int],
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+]:
     # Returns mapping entity_id->index and per-entity arrays for attributes and targets.
     with session_scope() as session:
         entities: List[Entity] = session.execute(select(Entity)).scalars().all()
@@ -106,12 +113,10 @@ class EntityDataset(Dataset[Dict[str, Tensor]]):
         return len(self.entity_ids)
 
     def __getitem__(self, idx: int) -> Dict[str, Tensor]:  # type: ignore[override]
-        eid = self.entity_ids[idx]
-        raise NotImplementedError("EntityDataset item construction is implemented in collate_fn only")
+        raise NotImplementedError("EntityDataset items are built in collate_fn only")
 
 
 def _build_run_id(config: TrainConfig, data_manifest: Dict[str, str]) -> str:
-    settings = get_settings()
     # Hash of config + data manifest + feature version hash + repo manifest (simplified).
     feature_hash = compute_feature_version_hash()
     repo_manifest = {"placeholder": "code_hash"}
@@ -145,7 +150,11 @@ def run_training(config_path: Optional[Path] = None) -> Tuple[str, Dict[str, flo
 
     encoder_cfg = EncoderConfig()
     artifact_feat_dim = 32  # synthetic artifacts histogram size; adjusted later if needed
-    model = FullModel(encoder_cfg, attr_input_dim=attr_tensor.shape[1], artifact_feat_dim=artifact_feat_dim)
+    model = FullModel(
+        encoder_cfg,
+        attr_input_dim=attr_tensor.shape[1],
+        artifact_feat_dim=artifact_feat_dim,
+    )
 
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
     bce = nn.BCEWithLogitsLoss()
@@ -282,8 +291,16 @@ def reproduce_run(run_id: str) -> Dict[str, object]:
 
     encoder_cfg = EncoderConfig()
     artifact_feat_dim = 32
-    model1 = FullModel(encoder_cfg, attr_input_dim=attr_tensor.shape[1], artifact_feat_dim=artifact_feat_dim)
-    model2 = FullModel(encoder_cfg, attr_input_dim=attr_tensor.shape[1], artifact_feat_dim=artifact_feat_dim)
+    model1 = FullModel(
+        encoder_cfg,
+        attr_input_dim=attr_tensor.shape[1],
+        artifact_feat_dim=artifact_feat_dim,
+    )
+    model2 = FullModel(
+        encoder_cfg,
+        attr_input_dim=attr_tensor.shape[1],
+        artifact_feat_dim=artifact_feat_dim,
+    )
 
     def _load_state(target_model: FullModel, rid: str) -> None:
         settings_local = get_settings()
@@ -404,8 +421,16 @@ def run_determinism_check() -> Dict[str, object]:
 
     encoder_cfg = EncoderConfig()
     artifact_feat_dim = 32
-    model1 = FullModel(encoder_cfg, attr_input_dim=attr_tensor.shape[1], artifact_feat_dim=artifact_feat_dim)
-    model2 = FullModel(encoder_cfg, attr_input_dim=attr_tensor.shape[1], artifact_feat_dim=artifact_feat_dim)
+    model1 = FullModel(
+        encoder_cfg,
+        attr_input_dim=attr_tensor.shape[1],
+        artifact_feat_dim=artifact_feat_dim,
+    )
+    model2 = FullModel(
+        encoder_cfg,
+        attr_input_dim=attr_tensor.shape[1],
+        artifact_feat_dim=artifact_feat_dim,
+    )
 
     def _load_state(run_id_local: str, model_inst: FullModel) -> None:
         run_dir_local = Path(settings.artifacts_root) / run_id_local
