@@ -6,14 +6,22 @@ This repository implements a deterministic, domain-agnostic analytics stack with
 
 For comprehensive information about this repository and how to use it in enterprise environments:
 
-- **[Quick Start Guide](QUICK_START_GUIDE.md)** - Get up and running in 5 minutes with examples
-- **[Comprehensive Repository Guide](COMPREHENSIVE_REPOSITORY_GUIDE.md)** - Detailed documentation including:
-  - Feynman-style explanations of core concepts
-  - Complete technical architecture
-  - Enterprise integration patterns (ETL, microservices, batch processing, real-time APIs)
-  - Industry-specific use cases (Finance, Healthcare, Retail, Manufacturing)
-  - API reference and configuration guide
-  - Security and compliance considerations (GDPR, HIPAA, SOC 2)
+- **[Quick Start Guide](QUICK_START_GUIDE.md)** - Get up and running in 5 minutes with curl examples, CSV formats, and troubleshooting
+
+- **[Comprehensive Repository Guide](COMPREHENSIVE_REPOSITORY_GUIDE.md)** - Complete 46KB guide with:
+  - Feynman-style explanations of core concepts (entities, events, artifacts, determinism)
+  - Complete technical architecture and data flow
+  - 7 enterprise integration patterns with working code (ETL, microservices, batch, real-time, MLOps, multi-tenant, hybrid cloud)
+  - 12 industry-specific use cases (Finance, Healthcare, Retail, Manufacturing, Government)
+  - Full API reference with request/response examples
+  - Security and compliance mapping (GDPR, HIPAA, SOC 2, FCRA, EU AI Act)
+
+- **[Architecture Diagrams](ARCHITECTURE_DIAGRAMS.md)** - Visual reference with ASCII diagrams showing:
+  - System architecture and component interactions
+  - Complete data flow pipeline (ingestion → features → training → prediction)
+  - Neural network architecture breakdown
+  - Enterprise integration patterns
+  - Determinism guarantees and explainability methods
 
 ## 🚀 Quick Start
 
