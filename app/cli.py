@@ -17,8 +17,7 @@ from app.services.feature_extraction import extract_features_for_pending
 from app.services.parquet_export import export_parquet
 from app.services.performance_report import write_performance_report
 from app.training.synth_data import generate_synthetic_dataset
-from app.training.train import run_training, reproduce_run, run_determinism_check
-
+from app.training.train import reproduce_run, run_determinism_check, run_training
 
 cli = typer.Typer(help="CLI for deterministic multimodal analytics stack")
 

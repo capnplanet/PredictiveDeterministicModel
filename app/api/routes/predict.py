@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+from time import perf_counter
 from typing import Dict, List, Tuple
 
 import torch
 from fastapi import APIRouter
 from sqlalchemy import select
-from time import perf_counter
 
 from app.api.schemas import (
     ArtifactAttribution,
@@ -37,8 +37,8 @@ def _load_latest_run_id(session) -> str:
 
 
 def _load_model(run_id: str) -> Tuple[FullModel, Dict[str, float]]:
-    from pathlib import Path
     import json
+    from pathlib import Path
 
     settings = get_settings()
     run_dir = Path(settings.artifacts_root)

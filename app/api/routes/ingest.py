@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, File, UploadFile, Form
+from fastapi import APIRouter, File, Form, UploadFile
 
 from app.api.schemas import ArtifactIngestionReportModel, IngestionReportModel
 from app.core.config import get_settings
@@ -70,8 +70,8 @@ async def ingest_single_artifact(
     metadata: Optional[str] = Form(None),
 ) -> dict:
     temp_path = _save_temp_file(file, "artifact_single")
-    from datetime import datetime
     import json
+    from datetime import datetime
 
     ts_val = datetime.fromisoformat(timestamp) if timestamp else None
     meta_val = json.loads(metadata) if metadata else None

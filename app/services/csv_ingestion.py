@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import ast
 import csv
 import json
-import ast
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path

@@ -20,6 +20,13 @@ from app.core.performance import emit_performance_event
 from app.db.models import Artifact, Entity, Event, Interaction, ModelRun
 from app.db.session import session_scope
 from app.ml.feature_version import compute_feature_version_hash
+from app.services.artifact_ingestion import ingest_artifacts_manifest
+from app.services.csv_ingestion import (
+    ingest_entities_csv,
+    ingest_events_csv,
+    ingest_interactions_csv,
+)
+from app.services.feature_extraction import extract_features_for_pending
 from app.training.model import (
     EncoderConfig,
     FullModel,
@@ -29,13 +36,6 @@ from app.training.model import (
     regression_metrics,
 )
 from app.training.synth_data import generate_synthetic_dataset
-from app.services.artifact_ingestion import ingest_artifacts_manifest
-from app.services.csv_ingestion import (
-    ingest_entities_csv,
-    ingest_events_csv,
-    ingest_interactions_csv,
-)
-from app.services.feature_extraction import extract_features_for_pending
 
 
 @dataclass

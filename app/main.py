@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import health, ingest, features, train, predict
+from app.api.routes import features, health, ingest, predict, train
 from app.core.performance import emit_performance_event
 
 app = FastAPI(title="Deterministic Multimodal Analytics")

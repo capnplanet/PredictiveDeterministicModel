@@ -9,7 +9,7 @@ from app.api.schemas import RunInfo, TrainRequest, TrainResponse
 from app.core.performance import timed_performance_event
 from app.db.models import ModelRun
 from app.db.session import session_scope
-from app.training.train import TrainConfig, run_training
+from app.training.train import run_training
 
 router = APIRouter(prefix="", tags=["training"])
 
@@ -19,8 +19,8 @@ async def train_model(request: TrainRequest) -> TrainResponse:
     cfg = request.config
     config_path = None
     if cfg is not None:
-        from pathlib import Path
         import json
+        from pathlib import Path
 
         tmp = Path("data/api_train_config.json")
         tmp.parent.mkdir(parents=True, exist_ok=True)

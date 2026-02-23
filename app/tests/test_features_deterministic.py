@@ -8,7 +8,12 @@ import pytest
 from app.ml.audio_features import extract_audio_features
 from app.ml.image_features import extract_image_features
 from app.ml.video_features import extract_video_features
-from app.training.synth_data import _generate_image, _generate_audio, _generate_video_frames, _write_video  # type: ignore[attr-defined]
+from app.training.synth_data import (  # type: ignore[attr-defined]
+    _generate_audio,
+    _generate_image,
+    _generate_video_frames,
+    _write_video,
+)
 
 
 @pytest.mark.integration

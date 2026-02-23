@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.performance import emit_performance_event
-from app.db.models import Artifact, FeatureStatus
+from app.db.models import Artifact
 from app.ml.audio_features import extract_audio_features
 from app.ml.feature_version import compute_feature_version_hash
 from app.ml.image_features import extract_image_features

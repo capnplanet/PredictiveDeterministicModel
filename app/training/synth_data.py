@@ -1,15 +1,15 @@
 from __future__ import annotations
 
+import json
 import math
 import random
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Tuple
 
-import json
 import numpy as np
-from PIL import Image
 import soundfile as sf
+from PIL import Image
 
 
 def _set_seed(seed: int) -> None:
