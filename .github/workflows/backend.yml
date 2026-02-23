@@ -6,12 +6,14 @@ on:
       - 'app/**'
       - 'alembic/**'
       - 'requirements.txt'
+      - 'pyproject.toml'
       - '.github/workflows/backend.yml'
   pull_request:
     paths:
       - 'app/**'
       - 'alembic/**'
       - 'requirements.txt'
+      - 'pyproject.toml'
 
 jobs:
   backend-ci:
@@ -53,3 +55,16 @@ jobs:
         run: PYTHONPATH=. pytest -q -m "api"
       - name: Tests (determinism)
         run: PYTHONPATH=. pytest -q -m "determinism"
+      - name: Build performance report
+        if: always()
+        run: |
+          PYTHONPATH=. python -m app.cli performance-report
+          cp data/performance_report.json data/performance_report_backend.json
+      - name: Upload performance artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-backend
+          path: |
+            data/performance_report_backend.json
+            data/performance_metrics.jsonl

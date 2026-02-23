@@ -15,6 +15,7 @@ from app.services.csv_ingestion import (
 )
 from app.services.feature_extraction import extract_features_for_pending
 from app.services.parquet_export import export_parquet
+from app.services.performance_report import write_performance_report
 from app.training.synth_data import generate_synthetic_dataset
 from app.training.train import run_training, reproduce_run, run_determinism_check
 
@@ -109,6 +110,16 @@ def export_parquet_cmd(out_dir: Path = Path("data/parquet")) -> None:
     """Export core tables to Parquet files."""
     result = export_parquet(out_dir)
     typer.echo(json.dumps(result, indent=2))
+
+
+@cli.command("performance-report")
+def performance_report(
+    output_path: Path = Path("data/performance_report.json"),
+    metrics_path: Optional[Path] = None,
+) -> None:
+    """Summarize recorded performance events into a JSON report."""
+    report = write_performance_report(output_path=output_path, metrics_path=metrics_path)
+    typer.echo(json.dumps(report, indent=2))
 
 
 def main() -> None:

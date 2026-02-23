@@ -6,12 +6,14 @@ on:
       - 'app/**'
       - 'alembic/**'
       - 'requirements.txt'
+      - 'pyproject.toml'
       - '.github/workflows/determinism-matrix.yml'
   pull_request:
     paths:
       - 'app/**'
       - 'alembic/**'
       - 'requirements.txt'
+      - 'pyproject.toml'
 
 jobs:
   determinism:
@@ -94,6 +96,21 @@ jobs:
           name: determinism-py${{ matrix.python-version }}
           path: determinism_report.json
 
+      - name: Build performance report
+        if: always()
+        run: |
+          PYTHONPATH=. python -m app.cli performance-report
+          cp data/performance_report.json performance_report.json
+
+      - name: Upload performance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-py${{ matrix.python-version }}
+          path: |
+            performance_report.json
+            data/performance_metrics.jsonl
+
   compare:
     runs-on: ubuntu-latest
     needs: determinism
@@ -135,4 +152,32 @@ jobs:
                   )
 
           print('Determinism matrix comparison passed across all reports.')
+          PY
+
+      - name: Download performance reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: performance-py*
+          path: performance-artifacts
+
+      - name: Summarize performance report counts
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path('performance-artifacts')
+          files = sorted(root.glob('**/performance_report.json'))
+          if not files:
+              raise SystemExit('No performance report artifacts found')
+
+          for path in files:
+              report = json.loads(path.read_text())
+              print(
+                  path.parent.name,
+                  'total_events=',
+                  report.get('total_events', 0),
+                  'event_types=',
+                  len(report.get('event_counts', {})),
+              )
           PY

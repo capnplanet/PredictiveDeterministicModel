@@ -7,9 +7,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from app.core.config import get_settings
+
 
 @pytest.fixture(autouse=True)
 def deterministic_test_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    get_settings.cache_clear()
     os.environ["PYTHONHASHSEED"] = "0"
     random.seed(1234)
     np.random.seed(1234)

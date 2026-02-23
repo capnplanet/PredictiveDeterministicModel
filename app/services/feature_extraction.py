@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from time import perf_counter
 from typing import List
 
 import numpy as np
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.performance import emit_performance_event
 from app.db.models import Artifact, FeatureStatus
 from app.ml.audio_features import extract_audio_features
 from app.ml.feature_version import compute_feature_version_hash
@@ -30,8 +32,16 @@ def _feature_cache_path(sha256: str) -> Path:
 
 
 def extract_features_for_artifact(session: Session, artifact: Artifact) -> None:
+    started = perf_counter()
     cache_path = _feature_cache_path(artifact.sha256)
     if cache_path.exists() and artifact.feature_status == "done":  # type: ignore[comparison-overlap]
+        emit_performance_event(
+            "features.extract_artifact",
+            duration_ms=(perf_counter() - started) * 1000.0,
+            artifact_id=str(artifact.artifact_id),
+            artifact_type=str(artifact.artifact_type),
+            cache_hit=True,
+        )
         return
 
     path = Path(artifact.file_path)
@@ -50,9 +60,18 @@ def extract_features_for_artifact(session: Session, artifact: Artifact) -> None:
     artifact.feature_version_hash = version_hash
     artifact.feature_status = "done"  # type: ignore[assignment]
     session.add(artifact)
+    emit_performance_event(
+        "features.extract_artifact",
+        duration_ms=(perf_counter() - started) * 1000.0,
+        artifact_id=str(artifact.artifact_id),
+        artifact_type=str(artifact.artifact_type),
+        feature_dim=dim,
+        cache_hit=False,
+    )
 
 
 def extract_features_for_pending(session: Session) -> int:
+    started = perf_counter()
     pending: List[Artifact] = (
         session.query(Artifact).filter(Artifact.feature_status == "pending").all()  # type: ignore[comparison-overlap]
     )
@@ -60,4 +79,10 @@ def extract_features_for_pending(session: Session) -> int:
     for art in pending:
         extract_features_for_artifact(session, art)
         count += 1
+    emit_performance_event(
+        "features.extract_pending",
+        duration_ms=(perf_counter() - started) * 1000.0,
+        pending_count=len(pending),
+        updated_count=count,
+    )
     return count

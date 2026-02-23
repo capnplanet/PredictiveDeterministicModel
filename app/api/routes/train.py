@@ -6,6 +6,7 @@ from fastapi import APIRouter
 from sqlalchemy import select
 
 from app.api.schemas import RunInfo, TrainRequest, TrainResponse
+from app.core.performance import timed_performance_event
 from app.db.models import ModelRun
 from app.db.session import session_scope
 from app.training.train import TrainConfig, run_training
@@ -26,7 +27,13 @@ async def train_model(request: TrainRequest) -> TrainResponse:
         tmp.write_text(json.dumps(cfg.model_dump()))
         config_path = tmp
 
-    run_id, metrics = run_training(config_path=config_path)
+    with timed_performance_event(
+        "api.train",
+        has_config=cfg is not None,
+        epochs=getattr(cfg, "epochs", None),
+        batch_size=getattr(cfg, "batch_size", None),
+    ):
+        run_id, metrics = run_training(config_path=config_path)
     return TrainResponse(run_id=run_id, metrics=metrics)
 
 

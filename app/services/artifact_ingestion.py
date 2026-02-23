@@ -6,11 +6,13 @@ import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from time import perf_counter
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.performance import emit_performance_event
 from app.db.models import Artifact, ArtifactType
 
 
@@ -61,10 +63,13 @@ def ingest_artifact_file(
     timestamp: Optional[datetime] = None,
     metadata: Optional[dict] = None,
 ) -> Artifact:
+    started = perf_counter()
     _validate_artifact_file(source_path)
+    source_size = source_path.stat().st_size
     root = _artifacts_root()
     sha256 = _compute_sha256(source_path)
     dest_path = root / sha256
+    existed_before = dest_path.exists()
     if not dest_path.exists():
         dest_path.write_bytes(source_path.read_bytes())
 
@@ -84,10 +89,21 @@ def ingest_artifact_file(
     )
     session.add(artifact)
     session.flush()
+    duration_ms = (perf_counter() - started) * 1000.0
+    throughput = source_size / max(duration_ms / 1000.0, 1e-9)
+    emit_performance_event(
+        "ingestion.artifact_file",
+        duration_ms=duration_ms,
+        artifact_type=artifact_type,
+        source_size_bytes=source_size,
+        throughput_bytes_per_sec=round(throughput, 3),
+        cache_hit=existed_before,
+    )
     return artifact
 
 
 def ingest_artifacts_manifest(session: Session, manifest_path: Path) -> ArtifactIngestionReport:
+    started = perf_counter()
     if not manifest_path.exists():
         raise ArtifactIngestionError(f"Manifest not found: {manifest_path}")
 
@@ -124,4 +140,15 @@ def ingest_artifacts_manifest(session: Session, manifest_path: Path) -> Artifact
                 failed += 1
                 errors.append(f"Row {total}: {exc}")
 
+    duration_ms = (perf_counter() - started) * 1000.0
+    throughput = (success / max(duration_ms / 1000.0, 1e-9)) if success else 0.0
+    emit_performance_event(
+        "ingestion.artifacts_manifest",
+        duration_ms=duration_ms,
+        manifest_path=str(manifest_path),
+        total_rows=total,
+        success_rows=success,
+        failed_rows=failed,
+        throughput_rows_per_sec=round(throughput, 3),
+    )
     return ArtifactIngestionReport(total_rows=total, success_rows=success, failed_rows=failed, errors=errors)

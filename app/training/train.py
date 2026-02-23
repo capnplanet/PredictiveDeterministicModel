@@ -6,6 +6,7 @@ import os
 import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from time import perf_counter
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -15,6 +16,7 @@ from torch import Tensor, nn
 from torch.utils.data import DataLoader, Dataset
 
 from app.core.config import get_settings
+from app.core.performance import emit_performance_event
 from app.db.models import Artifact, Entity, Event, Interaction, ModelRun
 from app.db.session import session_scope
 from app.ml.feature_version import compute_feature_version_hash
@@ -131,17 +133,32 @@ def _build_run_id(config: TrainConfig, data_manifest: Dict[str, str]) -> str:
 
 
 def run_training(config_path: Optional[Path] = None) -> Tuple[str, Dict[str, float]]:
+    training_started = perf_counter()
     cfg = TrainConfig()
     if config_path is not None and config_path.exists():
         loaded = json.loads(config_path.read_text())
         cfg = TrainConfig(**loaded)
+    emit_performance_event(
+        "training.config_loaded",
+        config_path=str(config_path) if config_path is not None else None,
+        epochs=cfg.epochs,
+        batch_size=cfg.batch_size,
+        lr=cfg.lr,
+        seed=cfg.seed,
+    )
 
     _set_determinism(cfg.seed)
 
+    prep_started = perf_counter()
     id_to_idx, attr_vec_np, y_reg_np, y_bin_np, y_rank_np, _, _ = _build_entity_tensors()
     n_entities = len(id_to_idx)
     if n_entities == 0:
         raise RuntimeError("No entities available for training")
+    emit_performance_event(
+        "training.data_prepared",
+        duration_ms=(perf_counter() - prep_started) * 1000.0,
+        entities=n_entities,
+    )
 
     attr_tensor = torch.from_numpy(attr_vec_np)
     y_reg = torch.from_numpy(y_reg_np)
@@ -165,6 +182,7 @@ def run_training(config_path: Optional[Path] = None) -> Tuple[str, Dict[str, flo
     loader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=False, num_workers=0)
 
     model.train()
+    train_loop_started = perf_counter()
     for _ in range(cfg.epochs):
         for batch_idx in loader:
             idx = batch_idx
@@ -200,8 +218,16 @@ def run_training(config_path: Optional[Path] = None) -> Tuple[str, Dict[str, flo
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+    emit_performance_event(
+        "training.train_loop",
+        duration_ms=(perf_counter() - train_loop_started) * 1000.0,
+        epochs=cfg.epochs,
+        batch_size=cfg.batch_size,
+        entities=n_entities,
+    )
 
     # Final metrics on all entities
+    eval_started = perf_counter()
     with torch.no_grad():
         bsz = n_entities
         event_type_ids = torch.zeros((bsz, 4), dtype=torch.long)
@@ -228,6 +254,11 @@ def run_training(config_path: Optional[Path] = None) -> Tuple[str, Dict[str, flo
     all_metrics.update({f"reg_{k}": v for k, v in metrics_reg.items()})
     all_metrics.update({f"cls_{k}": v for k, v in metrics_cls.items()})
     all_metrics.update({f"rank_{k}": v for k, v in metrics_rank.items()})
+    emit_performance_event(
+        "training.evaluation",
+        duration_ms=(perf_counter() - eval_started) * 1000.0,
+        metric_count=len(all_metrics),
+    )
 
     settings = get_settings()
     artifacts_root = Path(settings.artifacts_root)
@@ -238,6 +269,7 @@ def run_training(config_path: Optional[Path] = None) -> Tuple[str, Dict[str, flo
     run_dir = artifacts_root / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
+    persist_started = perf_counter()
     model_path = run_dir / "model.pt"
     torch.save({"state_dict": model.state_dict(), "config": asdict(cfg)}, model_path)
     model_bytes = model_path.read_bytes()
@@ -248,7 +280,14 @@ def run_training(config_path: Optional[Path] = None) -> Tuple[str, Dict[str, flo
     (run_dir / "data_manifest.json").write_text(json.dumps(data_manifest, indent=2))
     (run_dir / "training_log.jsonl").write_text("training completed\n")
     (run_dir / "model_sha256.txt").write_text(model_sha)
+    emit_performance_event(
+        "training.persist_artifacts",
+        duration_ms=(perf_counter() - persist_started) * 1000.0,
+        run_id=run_id,
+        run_dir=str(run_dir),
+    )
 
+    db_started = perf_counter()
     with session_scope() as session:
         run = ModelRun(
             run_id=run_id,
@@ -260,11 +299,25 @@ def run_training(config_path: Optional[Path] = None) -> Tuple[str, Dict[str, flo
             logs_path=str(run_dir / "training_log.jsonl"),
         )
         session.merge(run)
+    emit_performance_event(
+        "training.persist_db",
+        duration_ms=(perf_counter() - db_started) * 1000.0,
+        run_id=run_id,
+    )
+
+    emit_performance_event(
+        "training.total",
+        duration_ms=(perf_counter() - training_started) * 1000.0,
+        run_id=run_id,
+        entities=n_entities,
+        epochs=cfg.epochs,
+    )
 
     return run_id, all_metrics
 
 
 def reproduce_run(run_id: str) -> Dict[str, object]:
+    started = perf_counter()
     settings = get_settings()
     run_dir = Path(settings.artifacts_root) / run_id
     if not run_dir.exists():
@@ -340,7 +393,7 @@ def reproduce_run(run_id: str) -> Dict[str, object]:
     same_metrics = orig_metrics == new_metrics
     same_predictions = bool(np.array_equal(preds1, preds2))
 
-    return {
+    report = {
         "expected_run_id": run_id,
         "new_run_id": new_run_id,
         "same_run_id": same_run_id,
@@ -348,6 +401,16 @@ def reproduce_run(run_id: str) -> Dict[str, object]:
         "same_metrics": same_metrics,
         "same_predictions": same_predictions,
     }
+    emit_performance_event(
+        "training.reproduce",
+        duration_ms=(perf_counter() - started) * 1000.0,
+        expected_run_id=run_id,
+        same_run_id=same_run_id,
+        same_model_sha=same_model,
+        same_metrics=same_metrics,
+        same_predictions=same_predictions,
+    )
+    return report
 
 
 def run_determinism_check() -> Dict[str, object]:
@@ -361,6 +424,7 @@ def run_determinism_check() -> Dict[str, object]:
     - Compare run_id, metrics, model hash, and predictions.
     """
 
+    determinism_started = perf_counter()
     # Reset state (filesystem + database) to make this check idempotent
     settings = get_settings()
     synth_dir = Path("data/determinism_synth")
@@ -372,14 +436,20 @@ def run_determinism_check() -> Dict[str, object]:
             shutil.rmtree(path)
         path.mkdir(parents=True, exist_ok=True)
 
+    reset_started = perf_counter()
     with session_scope() as session:
         session.query(Artifact).delete()
         session.query(ModelRun).delete()
         session.query(Interaction).delete()
         session.query(Event).delete()
         session.query(Entity).delete()
+    emit_performance_event(
+        "determinism.reset_state",
+        duration_ms=(perf_counter() - reset_started) * 1000.0,
+    )
 
     # Generate synthetic data
+    gen_started = perf_counter()
     generate_synthetic_dataset(
         out_dir=synth_dir,
         n_entities=64,
@@ -388,17 +458,35 @@ def run_determinism_check() -> Dict[str, object]:
         n_artifacts=64,
         seed=2024,
     )
+    emit_performance_event(
+        "determinism.generate_synthetic",
+        duration_ms=(perf_counter() - gen_started) * 1000.0,
+        entities=64,
+        events=512,
+        interactions=256,
+        artifacts=64,
+    )
 
     # Ingest into DB
+    ingest_started = perf_counter()
     with session_scope() as session:
         ingest_entities_csv(session, synth_dir / "entities.csv")
         ingest_events_csv(session, synth_dir / "events.csv")
         ingest_interactions_csv(session, synth_dir / "interactions.csv")
+    emit_performance_event(
+        "determinism.ingest_core",
+        duration_ms=(perf_counter() - ingest_started) * 1000.0,
+    )
 
     # Artifact ingest + feature extraction
+    feature_started = perf_counter()
     with session_scope() as session:
         ingest_artifacts_manifest(session, synth_dir / "artifacts_manifest.csv")
         extract_features_for_pending(session)
+    emit_performance_event(
+        "determinism.artifacts_and_features",
+        duration_ms=(perf_counter() - feature_started) * 1000.0,
+    )
 
     # Training with fixed config
     small_cfg = TrainConfig(epochs=1, batch_size=16, lr=1e-3, seed=1234)
@@ -406,8 +494,10 @@ def run_determinism_check() -> Dict[str, object]:
     tmp_cfg_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_cfg_path.write_text(json.dumps(asdict(small_cfg)))
 
+    train_started = perf_counter()
     run_id1, metrics1 = run_training(config_path=tmp_cfg_path)
     run_id2, metrics2 = run_training(config_path=tmp_cfg_path)
+    train_duration_ms = (perf_counter() - train_started) * 1000.0
 
     sha1 = (Path(settings.artifacts_root) / run_id1 / "model_sha256.txt").read_text().strip()
     sha2 = (Path(settings.artifacts_root) / run_id2 / "model_sha256.txt").read_text().strip()
@@ -461,10 +551,12 @@ def run_determinism_check() -> Dict[str, object]:
             )
         return outputs["regression"].detach().cpu().numpy()
 
+    compare_started = perf_counter()
     preds1 = _predict(model1)
     preds2 = _predict(model2)
+    compare_duration_ms = (perf_counter() - compare_started) * 1000.0
 
-    return {
+    report = {
         "run_id1": run_id1,
         "run_id2": run_id2,
         "same_run_id": run_id1 == run_id2,
@@ -472,3 +564,23 @@ def run_determinism_check() -> Dict[str, object]:
         "same_model_sha": sha1 == sha2,
         "same_predictions": bool(np.array_equal(preds1, preds2)),
     }
+    emit_performance_event(
+        "determinism.train_twice",
+        duration_ms=train_duration_ms,
+        run_id1=run_id1,
+        run_id2=run_id2,
+    )
+    emit_performance_event(
+        "determinism.compare_predictions",
+        duration_ms=compare_duration_ms,
+        same_predictions=report["same_predictions"],
+    )
+    emit_performance_event(
+        "determinism.total",
+        duration_ms=(perf_counter() - determinism_started) * 1000.0,
+        same_run_id=report["same_run_id"],
+        same_metrics=report["same_metrics"],
+        same_model_sha=report["same_model_sha"],
+        same_predictions=report["same_predictions"],
+    )
+    return report

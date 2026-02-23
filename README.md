@@ -42,8 +42,21 @@ open http://localhost:5173
 
 - ✅ **Deterministic Training** - Bit-exact reproducibility across runs
 - ✅ **Determinism Matrix CI** - Cross-environment reproducibility gate with artifact/hash comparison
+- ✅ **Performance Telemetry** - Structured latency/throughput metrics with CI report artifacts
 - ✅ **Multi-Task Learning** - Regression, Classification, and Ranking in one model
 - ✅ **Multimodal Support** - Images, Audio, Video, and Tabular data
 - ✅ **Built-in Explainability** - Understand what drives every prediction
 - ✅ **Enterprise Ready** - Docker Compose, REST APIs, complete audit trails
 - ✅ **Compliance Focused** - Designed for GDPR, HIPAA, and regulated industries
+
+## 📈 Performance Metrics
+
+The backend now emits structured performance events to `data/performance_metrics.jsonl` for API requests, ingestion, training, and determinism stages.
+
+Generate a summarized report locally:
+
+```bash
+PYTHONPATH=. python -m app.cli performance-report
+```
+
+CI uploads these as artifacts in backend and determinism-matrix workflows (report-only mode).

@@ -5,6 +5,7 @@ from typing import Dict, List, Tuple
 import torch
 from fastapi import APIRouter
 from sqlalchemy import select
+from time import perf_counter
 
 from app.api.schemas import (
     ArtifactAttribution,
@@ -15,6 +16,7 @@ from app.api.schemas import (
     PredictResponse,
 )
 from app.core.config import get_settings
+from app.core.performance import emit_performance_event, timed_performance_event
 from app.db.models import Entity, ModelRun
 from app.db.session import session_scope
 from app.training.model import EncoderConfig, FullModel
@@ -138,11 +140,22 @@ def _artifact_attributions(
 
 @router.post("/predict", response_model=PredictResponse)
 async def predict(request: PredictRequest) -> PredictResponse:
+    predict_start = perf_counter()
     with session_scope() as session:
         run_id = request.run_id or _load_latest_run_id(session)
 
-    model, _ = _load_model(run_id)
-    attr_tensor, entity_ids = _build_entity_batch(request.entity_ids)
+    with timed_performance_event(
+        "predict.model_load",
+        run_id=run_id,
+    ):
+        model, _ = _load_model(run_id)
+
+    with timed_performance_event(
+        "predict.build_batch",
+        run_id=run_id,
+        requested_entities=len(request.entity_ids),
+    ):
+        attr_tensor, entity_ids = _build_entity_batch(request.entity_ids)
 
     bsz = attr_tensor.size(0)
     event_type_ids = torch.zeros((bsz, 4), dtype=torch.long)
@@ -152,19 +165,25 @@ async def predict(request: PredictRequest) -> PredictResponse:
     neighbor_mask = torch.zeros((bsz, 1), dtype=torch.float32)
     artifact_feats = torch.zeros((bsz, 1, 32), dtype=torch.float32)
 
-    with torch.no_grad():
-        outputs, fused_emb, attn = model(
-            event_type_ids=event_type_ids,
-            event_values=event_values,
-            event_deltas=event_deltas,
-            attr_vec=attr_tensor,
-            neighbor_attr=neighbor_attr,
-            neighbor_mask=neighbor_mask,
-            artifact_feats=artifact_feats,
-        )
+    with timed_performance_event(
+        "predict.forward",
+        run_id=run_id,
+        batch_size=bsz,
+    ):
+        with torch.no_grad():
+            outputs, fused_emb, attn = model(
+                event_type_ids=event_type_ids,
+                event_values=event_values,
+                event_deltas=event_deltas,
+                attr_vec=attr_tensor,
+                neighbor_attr=neighbor_attr,
+                neighbor_mask=neighbor_mask,
+                artifact_feats=artifact_feats,
+            )
 
     preds: List[EntityPrediction] = []
 
+    explanation_ms = 0.0
     for i, eid in enumerate(entity_ids):
         reg = float(outputs["regression"][i].item())
         prob = float(torch.sigmoid(outputs["logit"][i]).item())
@@ -173,6 +192,7 @@ async def predict(request: PredictRequest) -> PredictResponse:
 
         explanation = None
         if request.explanations:
+            explanation_start = perf_counter()
             fused_single = fused_emb[i : i + 1]
             attr_single = attr_tensor[i : i + 1]
             artifact_single = artifact_feats[i : i + 1]
@@ -189,6 +209,7 @@ async def predict(request: PredictRequest) -> PredictResponse:
                 attention=AttentionExplanation(token_weights=attn_weights),
                 artifact_attributions=art_attr,
             )
+            explanation_ms += (perf_counter() - explanation_start) * 1000.0
 
         preds.append(
             EntityPrediction(
@@ -201,4 +222,13 @@ async def predict(request: PredictRequest) -> PredictResponse:
             )
         )
 
+    emit_performance_event(
+        "api.predict",
+        status="ok",
+        duration_ms=(perf_counter() - predict_start) * 1000.0,
+        run_id=run_id,
+        batch_size=len(entity_ids),
+        explanations=request.explanations,
+        explanation_duration_ms=round(explanation_ms, 3),
+    )
     return PredictResponse(run_id=run_id, predictions=preds)

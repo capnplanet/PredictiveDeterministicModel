@@ -6,10 +6,12 @@ import ast
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from time import perf_counter
 from typing import Iterable, List
 
 from sqlalchemy.orm import Session
 
+from app.core.performance import emit_performance_event
 from app.db.models import Entity, Event, Interaction
 
 
@@ -50,6 +52,7 @@ def _read_csv_rows(path: Path) -> Iterable[dict[str, str]]:
 
 
 def ingest_entities_csv(session: Session, path: Path) -> IngestionReport:
+    started = perf_counter()
     required_cols = {"entity_id", "attributes"}
     total = success = failed = 0
     errors: List[str] = []
@@ -91,10 +94,22 @@ def ingest_entities_csv(session: Session, path: Path) -> IngestionReport:
     if success:
         session.flush()
 
+    duration_ms = (perf_counter() - started) * 1000.0
+    throughput = (success / max(duration_ms / 1000.0, 1e-9)) if success else 0.0
+    emit_performance_event(
+        "ingestion.entities_csv",
+        duration_ms=duration_ms,
+        file_path=str(path),
+        total_rows=total,
+        success_rows=success,
+        failed_rows=failed,
+        throughput_rows_per_sec=round(throughput, 3),
+    )
     return IngestionReport(total_rows=total, success_rows=success, failed_rows=failed, errors=errors)
 
 
 def ingest_events_csv(session: Session, path: Path) -> IngestionReport:
+    started = perf_counter()
     required_cols = {"timestamp", "entity_id", "event_type", "event_value"}
     total = success = failed = 0
     errors: List[str] = []
@@ -129,10 +144,22 @@ def ingest_events_csv(session: Session, path: Path) -> IngestionReport:
     if success:
         session.flush()
 
+    duration_ms = (perf_counter() - started) * 1000.0
+    throughput = (success / max(duration_ms / 1000.0, 1e-9)) if success else 0.0
+    emit_performance_event(
+        "ingestion.events_csv",
+        duration_ms=duration_ms,
+        file_path=str(path),
+        total_rows=total,
+        success_rows=success,
+        failed_rows=failed,
+        throughput_rows_per_sec=round(throughput, 3),
+    )
     return IngestionReport(total_rows=total, success_rows=success, failed_rows=failed, errors=errors)
 
 
 def ingest_interactions_csv(session: Session, path: Path) -> IngestionReport:
+    started = perf_counter()
     required_cols = {"timestamp", "src_entity_id", "dst_entity_id", "interaction_type", "interaction_value"}
     total = success = failed = 0
     errors: List[str] = []
@@ -169,4 +196,15 @@ def ingest_interactions_csv(session: Session, path: Path) -> IngestionReport:
     if success:
         session.flush()
 
+    duration_ms = (perf_counter() - started) * 1000.0
+    throughput = (success / max(duration_ms / 1000.0, 1e-9)) if success else 0.0
+    emit_performance_event(
+        "ingestion.interactions_csv",
+        duration_ms=duration_ms,
+        file_path=str(path),
+        total_rows=total,
+        success_rows=success,
+        failed_rows=failed,
+        throughput_rows_per_sec=round(throughput, 3),
+    )
     return IngestionReport(total_rows=total, success_rows=success, failed_rows=failed, errors=errors)
