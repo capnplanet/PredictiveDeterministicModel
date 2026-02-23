@@ -6,7 +6,7 @@ This document captures telemetry and test outcomes observed on 2026-02-23 after 
 
 - Repository: `capnplanet/PredictiveDeterministicModel`
 - Branch: `main`
-- Latest tested commit at report time: `11256882c455508d1f629c3e9803ff81e0e7d736`
+- Latest tested commit at report time: `dacdb90b2aa8b81b861ff87035f4c91079dac727`
 
 ## Local Telemetry Snapshot
 
@@ -48,10 +48,25 @@ Local checks executed:
    - Result: `All checks passed`
 3. `PYTHONPATH=. pytest -q app/tests/test_performance_metrics.py`  
    - Result: `2 passed`
+4. `python -m mypy app`  
+  - Result: `Success: no issues found in 35 source files`
+5. `PLAYWRIGHT_BASE_URL=http://localhost:5173 npm run e2e` (after migrations)  
+  - Result: `2 passed`
 
 ## GitHub Actions Snapshot (Today)
 
-### Finalized runs for commit `11256882c455508d1f629c3e9803ff81e0e7d736`
+### Finalized runs for commit `dacdb90b2aa8b81b861ff87035f4c91079dac727`
+
+- Backend CI — `failure`  
+  https://github.com/capnplanet/PredictiveDeterministicModel/actions/runs/22329126099  
+  Failed step: `Apply DB migrations`
+- Determinism Matrix CI — `success`  
+  https://github.com/capnplanet/PredictiveDeterministicModel/actions/runs/22329126096  
+  Jobs passed: `determinism (3.11)`, `determinism (3.12)`, `compare`
+- E2E CI — `success`  
+  https://github.com/capnplanet/PredictiveDeterministicModel/actions/runs/22329126105
+
+### Earlier finalized runs for commit `11256882c455508d1f629c3e9803ff81e0e7d736`
 
 - Backend CI — `failure`  
   https://github.com/capnplanet/PredictiveDeterministicModel/actions/runs/22328528874  
@@ -74,6 +89,7 @@ For commit `6f20a7104e2e401d905b6a8c33060bfb492c816d`:
 ## Notes
 
 - The local telemetry dataset currently reflects a small test sample (`2` events). This is expected given targeted local validation commands.
-- Determinism matrix checks are green for the monitored commit.
+- Determinism matrix checks are green for both monitored fix commits.
+- E2E is now green for the latest monitored fix commit.
 - Documentation-only commit `d40293ad898e394025c697c1fc2e4bfc2188cece` does not trigger these workflows because workflow path filters target backend/frontend/workflow files.
 - This document was updated after workflow completion to reflect final statuses.
