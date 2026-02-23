@@ -3,12 +3,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from app.db.models import Entity
 from app.db.session import session_scope
 from app.services.csv_ingestion import ingest_entities_csv
 from app.services.parquet_export import export_parquet
 
 
+@pytest.mark.integration
 def test_ingest_and_parquet_export(tmp_path: Path) -> None:
     csv_path = tmp_path / "entities.csv"
     attrs = {

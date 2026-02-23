@@ -10,3 +10,10 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 addopts = "-q"
+testpaths = ["app/tests"]
+markers = [
+	"unit: fast isolated tests",
+	"integration: tests that exercise DB/filesystem/service boundaries",
+	"api: HTTP API integration tests",
+	"determinism: reproducibility and bit-exactness checks",
+]

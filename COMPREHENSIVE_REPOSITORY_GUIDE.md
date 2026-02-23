@@ -682,8 +682,8 @@ jobs:
       
       - name: Run Tests
         run: |
-          pytest tests/test_determinism.py
-          pytest tests/test_predictions.py
+          PYTHONPATH=. pytest -q app/tests/test_determinism_check.py
+          PYTHONPATH=. pytest -q app/tests/test_features_deterministic.py
       
       - name: Validate Performance
         run: |
@@ -1376,8 +1376,8 @@ The **Deterministic Multimodal Analytics Stack** is a production-ready, enterpri
 
 - **API Documentation**: Available at `http://localhost:8000/docs` (Swagger UI)
 - **Sample Datasets**: Included in `app/training/synth_data.py`
-- **Test Suite**: Run `pytest tests/` for comprehensive test coverage
-- **Performance Benchmarks**: See `tests/test_determinism.py` for reproducibility verification
+- **Test Suite**: Run `PYTHONPATH=. pytest -q app/tests` for comprehensive test coverage
+- **Performance Benchmarks**: See `app/tests/test_determinism_check.py` for reproducibility verification
 
 For questions, issues, or feature requests, please open an issue on GitHub.
 

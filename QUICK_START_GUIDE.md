@@ -342,7 +342,7 @@ CUBLAS_WORKSPACE_CONFIG=:4096:8
 - **Full Documentation**: `COMPREHENSIVE_REPOSITORY_GUIDE.md`
 - **API Docs**: `http://localhost:8000/docs`
 - **Sample Data**: `python -m app.training.synth_data`
-- **Tests**: `pytest tests/`
+- **Tests**: `PYTHONPATH=. pytest -q app/tests`
 - **GitHub**: [capnplanet/PredictiveDeterministicModel](https://github.com/capnplanet/PredictiveDeterministicModel)
 
 ---

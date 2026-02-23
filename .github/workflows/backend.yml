@@ -16,6 +16,22 @@ on:
 jobs:
   backend-ci:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: analytics
+          POSTGRES_PASSWORD: analytics
+          POSTGRES_DB: analytics
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U analytics -d analytics"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql+psycopg2://analytics:analytics@localhost:5432/analytics
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -29,5 +45,11 @@ jobs:
         run: ruff check app
       - name: Type check (mypy)
         run: mypy app
-      - name: Tests (pytest)
-        run: pytest -q
+      - name: Apply DB migrations
+        run: alembic upgrade head
+      - name: Tests (integration)
+        run: PYTHONPATH=. pytest -q -m "integration and not determinism and not api"
+      - name: Tests (api integration)
+        run: PYTHONPATH=. pytest -q -m "api"
+      - name: Tests (determinism)
+        run: PYTHONPATH=. pytest -q -m "determinism"

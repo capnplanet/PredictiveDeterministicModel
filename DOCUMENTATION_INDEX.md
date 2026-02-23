@@ -233,7 +233,7 @@ This repository now includes comprehensive documentation explaining the system, 
 
 - **Interactive API Docs**: `http://localhost:8000/docs` (when running)
 - **GitHub Repository**: [capnplanet/PredictiveDeterministicModel](https://github.com/capnplanet/PredictiveDeterministicModel)
-- **Run Tests**: `pytest tests/` for comprehensive test coverage
+- **Run Tests**: `PYTHONPATH=. pytest -q app/tests` for comprehensive test coverage
 - **Sample Data**: `python -m app.training.synth_data` for synthetic data generation
 
 ---
