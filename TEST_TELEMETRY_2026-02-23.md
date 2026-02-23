@@ -51,14 +51,17 @@ Local checks executed:
 
 ## GitHub Actions Snapshot (Today)
 
-### Current runs for commit `11256882c455508d1f629c3e9803ff81e0e7d736`
+### Finalized runs for commit `11256882c455508d1f629c3e9803ff81e0e7d736`
 
-- Backend CI — `in_progress`  
-  https://github.com/capnplanet/PredictiveDeterministicModel/actions/runs/22328528874
-- Determinism Matrix CI — `in_progress`  
-  https://github.com/capnplanet/PredictiveDeterministicModel/actions/runs/22328528871
-- E2E CI — `in_progress`  
-  https://github.com/capnplanet/PredictiveDeterministicModel/actions/runs/22328528863
+- Backend CI — `failure`  
+  https://github.com/capnplanet/PredictiveDeterministicModel/actions/runs/22328528874  
+  Failed step: `Type check (mypy)`
+- Determinism Matrix CI — `success`  
+  https://github.com/capnplanet/PredictiveDeterministicModel/actions/runs/22328528871  
+  Jobs passed: `determinism (3.11)`, `determinism (3.12)`, `compare`
+- E2E CI — `failure`  
+  https://github.com/capnplanet/PredictiveDeterministicModel/actions/runs/22328528863  
+  Failed step: `Run E2E tests`
 
 ### Prior run context (same day)
 
@@ -71,5 +74,6 @@ For commit `6f20a7104e2e401d905b6a8c33060bfb492c816d`:
 ## Notes
 
 - The local telemetry dataset currently reflects a small test sample (`2` events). This is expected given targeted local validation commands.
-- CI artifacts should provide broader telemetry once the current workflow runs complete.
-- This report is a point-in-time snapshot and should be updated after the active runs finish.
+- Determinism matrix checks are green for the monitored commit.
+- Documentation-only commit `d40293ad898e394025c697c1fc2e4bfc2188cece` does not trigger these workflows because workflow path filters target backend/frontend/workflow files.
+- This document was updated after workflow completion to reflect final statuses.
