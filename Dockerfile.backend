@@ -25,4 +25,4 @@ ENV PYTHONPATH=/app
 
 RUN mkdir -p /app/data /app/artifacts /app/data/feature_cache /app/data/artifacts_store
 
-CMD ["bash", "-lc", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+CMD ["bash", "-lc", "for i in $(seq 1 60); do alembic upgrade head && break || sleep 2; done && uvicorn app.main:app --host 0.0.0.0 --port 8000"]

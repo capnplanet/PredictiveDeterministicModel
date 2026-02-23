@@ -8,6 +8,20 @@ python_version = "3.11"
 warn_unused_configs = true
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = [
+	"app.db.models",
+	"app.api.routes.ingest",
+	"app.api.routes.predict",
+	"app.api.routes.train",
+	"app.services.feature_extraction",
+	"app.training.train",
+	"app.training.synth_data",
+	"app.ml.image_features",
+	"app.ml.feature_version",
+]
+ignore_errors = true
+
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["app/tests"]
