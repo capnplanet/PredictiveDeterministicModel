@@ -41,6 +41,7 @@ open http://localhost:5173
 ## ✨ Key Features
 
 - ✅ **Deterministic Training** - Bit-exact reproducibility across runs
+- ✅ **Determinism Matrix CI** - Cross-environment reproducibility gate with artifact/hash comparison
 - ✅ **Multi-Task Learning** - Regression, Classification, and Ranking in one model
 - ✅ **Multimodal Support** - Images, Audio, Video, and Tabular data
 - ✅ **Built-in Explainability** - Understand what drives every prediction
