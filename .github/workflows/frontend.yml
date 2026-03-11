@@ -20,7 +20,7 @@ jobs:
       - name: Install deps
         run: |
           cd frontend
-          npm install
+          npm ci
       - name: Type check
         run: |
           cd frontend

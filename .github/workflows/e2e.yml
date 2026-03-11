@@ -31,7 +31,7 @@ jobs:
       - name: Install frontend deps
         run: |
           cd frontend
-          npm install
+          npm ci
 
       - name: Install Playwright browser
         run: |
@@ -73,7 +73,18 @@ jobs:
           fi
 
       - name: Apply DB migrations
-        run: docker compose exec -T backend alembic upgrade head
+        run: |
+          set -e
+          for i in $(seq 1 5); do
+            if docker compose exec -T backend alembic upgrade head; then
+              break
+            fi
+            if [ "$i" -eq 5 ]; then
+              echo "DB migrations failed after retries"
+              exit 1
+            fi
+            sleep $((i * 2))
+          done
 
       - name: Run E2E tests
         env:

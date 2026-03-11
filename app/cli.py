@@ -16,6 +16,7 @@ from app.services.csv_ingestion import (
 from app.services.feature_extraction import extract_features_for_pending
 from app.services.parquet_export import export_parquet
 from app.services.performance_report import write_performance_report
+from app.training.public_corpora import prepare_movielens_100k, prepare_uci_adult
 from app.training.synth_data import generate_synthetic_dataset
 from app.training.train import reproduce_run, run_determinism_check, run_training
 
@@ -81,6 +82,26 @@ def generate_synth(
         seed=seed,
     )
     typer.echo(json.dumps({"status": "ok", "out_dir": str(out_dir)}))
+
+
+@cli.command("prepare-movielens")
+def prepare_movielens(
+    input_path: Path = typer.Argument(..., help="Path to MovieLens u.data file"),
+    out_dir: Path = typer.Argument(..., help="Output directory for converted CSVs"),
+) -> None:
+    """Convert MovieLens 100k data into ingestion-ready corpus CSV files."""
+    result = prepare_movielens_100k(input_path=input_path, out_dir=out_dir)
+    typer.echo(json.dumps({"status": "ok", "out_dir": str(out_dir), **result}, indent=2))
+
+
+@cli.command("prepare-uci-adult")
+def prepare_uci_adult_cmd(
+    input_path: Path = typer.Argument(..., help="Path to UCI Adult-like CSV file"),
+    out_dir: Path = typer.Argument(..., help="Output directory for converted CSVs"),
+) -> None:
+    """Convert UCI Adult-like tabular data into ingestion-ready corpus CSV files."""
+    result = prepare_uci_adult(input_path=input_path, out_dir=out_dir)
+    typer.echo(json.dumps({"status": "ok", "out_dir": str(out_dir), **result}, indent=2))
 
 
 @cli.command("train")

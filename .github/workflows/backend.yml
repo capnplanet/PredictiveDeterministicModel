@@ -48,7 +48,18 @@ jobs:
       - name: Type check (mypy)
         run: mypy app
       - name: Apply DB migrations
-        run: alembic upgrade head
+        run: |
+          set -e
+          for i in $(seq 1 5); do
+            if alembic upgrade head; then
+              break
+            fi
+            if [ "$i" -eq 5 ]; then
+              echo "DB migrations failed after retries"
+              exit 1
+            fi
+            sleep $((i * 2))
+          done
       - name: Tests (integration)
         run: PYTHONPATH=. pytest -q -m "integration and not determinism and not api"
       - name: Tests (api integration)

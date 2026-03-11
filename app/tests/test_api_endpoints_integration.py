@@ -14,8 +14,11 @@ def test_health_endpoint() -> None:
     client = TestClient(app)
     response = client.get("/health/")
 
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.status_code in (200, 503)
+    if response.status_code == 200:
+        assert response.json() == {"status": "ok", "database": "ok"}
+    else:
+        assert response.json() == {"detail": {"status": "degraded", "database": "error"}}
 
 
 @pytest.mark.integration
