@@ -116,4 +116,7 @@ def test_ingest_train_predict_api_flow() -> None:
     assert "probability" in prediction
     assert "ranking_score" in prediction
     assert isinstance(prediction.get("embedding"), list)
+    assert "narrative" in prediction
+    assert isinstance(prediction["narrative"], str)
+    assert prediction["narrative"].strip()
     assert prediction.get("explanation") is not None

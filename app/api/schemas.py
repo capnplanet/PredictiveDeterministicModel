@@ -80,6 +80,7 @@ class EntityPrediction(BaseModel):
     probability: float
     ranking_score: float
     embedding: List[float]
+    narrative: Optional[str] = None
     explanation: Optional[EntityExplanation] = None
 
 

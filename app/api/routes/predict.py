@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from time import perf_counter
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 from fastapi import APIRouter
+from sqlalchemy import func, or_, select
 
 from app.api.schemas import (
     ArtifactAttribution,
@@ -16,7 +18,7 @@ from app.api.schemas import (
 )
 from app.core.performance import emit_performance_event, timed_performance_event
 from app.core.config import get_settings
-from app.db.models import ModelRun
+from app.db.models import Artifact, Event, Interaction, ModelRun
 from app.db.session import session_scope
 from app.training.model import EncoderConfig, FullModel
 from app.training.train import build_entity_batch_tensors
@@ -118,6 +120,103 @@ def _artifact_attributions(
     return contrib
 
 
+def _collect_entity_relationship_context(session, entity_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    context: Dict[str, Dict[str, Any]] = {
+        entity_id: {
+            "event_count": 0,
+            "top_event_type": None,
+            "artifact_count": 0,
+            "artifact_type_counts": {},
+            "strongest_related_entity": None,
+            "outgoing_count": 0,
+            "incoming_count": 0,
+        }
+        for entity_id in entity_ids
+    }
+    if not entity_ids:
+        return context
+
+    event_type_counts: Dict[str, Dict[str, int]] = defaultdict(dict)
+    event_rows = session.execute(
+        select(Event.entity_id, Event.event_type, func.count(Event.event_id))
+        .where(Event.entity_id.in_(entity_ids))
+        .group_by(Event.entity_id, Event.event_type)
+    ).all()
+    for entity_id, event_type, cnt in event_rows:
+        count_int = int(cnt)
+        context[entity_id]["event_count"] += count_int
+        event_type_counts[entity_id][str(event_type)] = count_int
+    for entity_id in entity_ids:
+        if event_type_counts[entity_id]:
+            context[entity_id]["top_event_type"] = sorted(
+                event_type_counts[entity_id].items(), key=lambda item: (-item[1], item[0])
+            )[0][0]
+
+    artifact_rows = session.execute(
+        select(Artifact.entity_id, Artifact.artifact_type, func.count(Artifact.artifact_id))
+        .where(Artifact.entity_id.in_(entity_ids))
+        .group_by(Artifact.entity_id, Artifact.artifact_type)
+    ).all()
+    for entity_id, artifact_type, cnt in artifact_rows:
+        if entity_id is None:
+            continue
+        count_int = int(cnt)
+        atype = str(artifact_type)
+        context[entity_id]["artifact_count"] += count_int
+        context[entity_id]["artifact_type_counts"][atype] = count_int
+
+    strengths: Dict[str, Dict[str, float]] = {entity_id: defaultdict(float) for entity_id in entity_ids}
+    interaction_rows = session.execute(
+        select(Interaction.src_entity_id, Interaction.dst_entity_id, Interaction.interaction_value).where(
+            or_(Interaction.src_entity_id.in_(entity_ids), Interaction.dst_entity_id.in_(entity_ids))
+        )
+    ).all()
+    for src_entity_id, dst_entity_id, interaction_value in interaction_rows:
+        weight = abs(float(interaction_value))
+        if src_entity_id in context:
+            context[src_entity_id]["outgoing_count"] += 1
+            strengths[src_entity_id][dst_entity_id] += weight
+        if dst_entity_id in context:
+            context[dst_entity_id]["incoming_count"] += 1
+            strengths[dst_entity_id][src_entity_id] += weight
+    for entity_id in entity_ids:
+        if strengths[entity_id]:
+            context[entity_id]["strongest_related_entity"] = sorted(
+                strengths[entity_id].items(), key=lambda item: (-item[1], item[0])
+            )[0][0]
+
+    return context
+
+
+def _render_prediction_narrative(
+    entity_id: str,
+    rel_ctx: Dict[str, Any],
+    regression: float,
+    probability: float,
+    ranking_score: float,
+) -> str:
+    event_count = int(rel_ctx.get("event_count", 0))
+    top_event_type = rel_ctx.get("top_event_type") or "none"
+    artifact_count = int(rel_ctx.get("artifact_count", 0))
+    artifact_type_counts = rel_ctx.get("artifact_type_counts", {})
+    outgoing_count = int(rel_ctx.get("outgoing_count", 0))
+    incoming_count = int(rel_ctx.get("incoming_count", 0))
+    strongest_related_entity: Optional[str] = rel_ctx.get("strongest_related_entity")
+
+    artifact_parts = [
+        f"{artifact_type}:{count}" for artifact_type, count in sorted(artifact_type_counts.items())
+    ]
+    artifact_summary = ", ".join(artifact_parts) if artifact_parts else "none"
+    strongest = strongest_related_entity or "none"
+
+    return (
+        f"Entity {entity_id}: events={event_count} (top={top_event_type}); "
+        f"artifacts={artifact_count} ({artifact_summary}); "
+        f"relationships=outgoing:{outgoing_count}, incoming:{incoming_count}, strongest:{strongest}; "
+        f"scores=regression:{regression:.4f}, probability:{probability:.4f}, ranking:{ranking_score:.4f}."
+    )
+
+
 @router.post("/predict", response_model=PredictResponse)
 async def predict(request: PredictRequest) -> PredictResponse:
     predict_start = perf_counter()
@@ -153,6 +252,9 @@ async def predict(request: PredictRequest) -> PredictResponse:
         with torch.no_grad():
             outputs, fused_emb, attn = model(**model_inputs)
 
+    with session_scope() as session:
+        relationship_context = _collect_entity_relationship_context(session, entity_ids)
+
     preds: List[EntityPrediction] = []
 
     explanation_ms = 0.0
@@ -161,6 +263,13 @@ async def predict(request: PredictRequest) -> PredictResponse:
         prob = float(torch.sigmoid(outputs["logit"][i]).item())
         score = float(outputs["score"][i].item())
         emb_list = fused_emb[i].detach().cpu().numpy().tolist()
+        narrative = _render_prediction_narrative(
+            entity_id=eid,
+            rel_ctx=relationship_context.get(eid, {}),
+            regression=reg,
+            probability=prob,
+            ranking_score=score,
+        )
 
         explanation = None
         if request.explanations:
@@ -190,6 +299,7 @@ async def predict(request: PredictRequest) -> PredictResponse:
                 probability=prob,
                 ranking_score=score,
                 embedding=emb_list,
+                narrative=narrative,
                 explanation=explanation,
             )
         )
