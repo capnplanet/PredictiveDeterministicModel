@@ -16,8 +16,8 @@ from app.api.schemas import (
     PredictRequest,
     PredictResponse,
 )
-from app.core.performance import emit_performance_event, timed_performance_event
 from app.core.config import get_settings
+from app.core.performance import emit_performance_event, timed_performance_event
 from app.db.models import Artifact, Event, Interaction, ModelRun
 from app.db.session import session_scope
 from app.training.model import EncoderConfig, FullModel
