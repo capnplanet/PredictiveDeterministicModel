@@ -67,6 +67,9 @@ Purpose:
 - Load structured CSV datasets plus artifact files and artifact manifests.
 
 Controls:
+- Demo Preload controls:
+  - Dataset profile selector (small/medium)
+  - Preload Synthetic Demo Data button
 - Entities Manifest file input
 - Events Stream file input
 - Interactions Graph file input
@@ -82,7 +85,12 @@ What happens on upload:
 - Each input immediately calls a backend ingest endpoint when a file is selected.
 - The status banner reports rows accepted and total rows processed.
 
+Demo preload behavior:
+- Uses a backend demo preload endpoint to generate and ingest representative synthetic entities, events, interactions, artifact manifest rows, and a single artifact upload path in one action.
+- Useful for demos when you want all ingestion points populated quickly.
+
 Endpoint mapping:
+- Demo Preload -> POST /demo/preload
 - Entities Manifest -> POST /ingest/entities
 - Events Stream -> POST /ingest/events
 - Interactions Graph -> POST /ingest/interactions

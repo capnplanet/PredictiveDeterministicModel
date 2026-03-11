@@ -31,7 +31,9 @@ def _extract_candidate_entity_ids(query: str, all_entity_ids: List[str], limit: 
 @router.post("/query", response_model=QueryResponse)
 async def query_predictions(request: QueryRequest) -> QueryResponse:
     with session_scope() as session:
-        all_entity_ids = list(session.execute(select(Entity.entity_id).order_by(Entity.created_at.desc())).scalars().all())
+        all_entity_ids = list(
+            session.execute(select(Entity.entity_id).order_by(Entity.created_at.desc())).scalars().all()
+        )
 
     entity_ids = _extract_candidate_entity_ids(request.query, all_entity_ids, request.limit)
     interpreted_as, llm_used = await maybe_interpret_query(request.query)

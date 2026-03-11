@@ -3,6 +3,7 @@ import {
   uploadCsv,
   uploadArtifactsManifest,
   uploadSingleArtifact,
+  preloadDemoData,
   triggerTrain,
   listRuns,
   predict,
@@ -101,6 +102,7 @@ export const App: React.FC = () => {
   const [artifactTimestamp, setArtifactTimestamp] = useState('');
   const [artifactMetadata, setArtifactMetadata] = useState('');
   const [artifactFile, setArtifactFile] = useState<File | null>(null);
+  const [demoProfile, setDemoProfile] = useState<'small' | 'medium'>('small');
   const [queryText, setQueryText] = useState('');
   const [queryResult, setQueryResult] = useState<QueryResponse | null>(null);
   const [status, setStatus] = useState<{ message: string; tone: StatusTone }>({
@@ -131,6 +133,19 @@ export const App: React.FC = () => {
       setStatusMessage(`Training complete. Run ID: ${res.run_id}`, 'success');
     } catch (error) {
       setStatusMessage(`Training failed. ${(error as Error).message}`, 'error');
+    }
+  };
+
+  const handlePreloadDemo = async () => {
+    setStatusMessage(`Preloading ${demoProfile} synthetic demo dataset across all ingestion points...`, 'warning');
+    try {
+      const res = await preloadDemoData(demoProfile, true);
+      setStatusMessage(
+        `Demo preload complete: entities ${res.entities.success_rows}/${res.entities.total_rows}, events ${res.events.success_rows}/${res.events.total_rows}, interactions ${res.interactions.success_rows}/${res.interactions.total_rows}, artifacts ${res.artifacts_manifest.success_rows}/${res.artifacts_manifest.total_rows}, features updated ${res.features.updated_artifacts}.`,
+        'success',
+      );
+    } catch (error) {
+      setStatusMessage(`Demo preload failed. ${(error as Error).message}`, 'error');
     }
   };
 
@@ -306,6 +321,26 @@ export const App: React.FC = () => {
         <section className="panel fade-in">
           <h2>Data Intake Zone</h2>
           <p className="panel-intro">Load mission datasets and artifacts in staged order to maintain deterministic run provenance.</p>
+          <h3 className="dataset-subtitle">Demo Preload</h3>
+          <div className="demo-preload-row" data-testid="demo-preload-controls">
+            <label className="field-group" htmlFor="demo-profile">
+              <span>Dataset Profile</span>
+              <select
+                id="demo-profile"
+                data-testid="input-demo-profile"
+                className="text-input"
+                value={demoProfile}
+                onChange={(e) => setDemoProfile(e.target.value as 'small' | 'medium')}
+              >
+                <option value="small">small</option>
+                <option value="medium">medium</option>
+              </select>
+            </label>
+            <button data-testid="action-preload-demo" className="secondary-action" onClick={handlePreloadDemo}>
+              Preload Synthetic Demo Data
+            </button>
+          </div>
+
           <h3 className="dataset-subtitle">Structured Data</h3>
           <div className="upload-grid">
             <label className="upload-card" htmlFor="entities-csv">

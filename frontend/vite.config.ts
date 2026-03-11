@@ -17,6 +17,7 @@ export default defineConfig({
     proxy: {
       '/health': proxyTarget,
       '/ingest': proxyTarget,
+      '/demo': proxyTarget,
       '/features': proxyTarget,
       '/train': proxyTarget,
       '/runs': proxyTarget,

@@ -5,6 +5,17 @@ export interface IngestionReport {
   errors: string[];
 }
 
+export interface DemoPreloadResponse {
+  profile: string;
+  output_dir: string;
+  entities: IngestionReport;
+  events: IngestionReport;
+  interactions: IngestionReport;
+  artifacts_manifest: IngestionReport;
+  single_artifact: { artifact_id: string; sha256: string; artifact_type: string };
+  features: { updated_artifacts: number };
+}
+
 export interface ArtifactUploadResponse {
   artifact_id: string;
   sha256: string;
@@ -31,6 +42,18 @@ export async function uploadCsv(path: string, file: File): Promise<IngestionRepo
 
 export async function uploadArtifactsManifest(file: File): Promise<IngestionReport> {
   return uploadCsv('/ingest/artifacts', file);
+}
+
+export async function preloadDemoData(profile: 'small' | 'medium', resetExisting = true): Promise<DemoPreloadResponse> {
+  const res = await fetch('/demo/preload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ profile, reset_existing: resetExisting, extract_features: true }),
+  });
+  if (!res.ok) {
+    throw new Error(`Demo preload failed: ${res.status}`);
+  }
+  return (await res.json()) as DemoPreloadResponse;
 }
 
 export async function uploadSingleArtifact(payload: SingleArtifactUploadRequest): Promise<ArtifactUploadResponse> {

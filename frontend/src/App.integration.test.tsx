@@ -8,6 +8,7 @@ vi.mock('./api', () => ({
   uploadCsv: vi.fn(),
   uploadArtifactsManifest: vi.fn(),
   uploadSingleArtifact: vi.fn(),
+  preloadDemoData: vi.fn(),
   triggerTrain: vi.fn(),
   listRuns: vi.fn(),
   predict: vi.fn(),
@@ -111,6 +112,30 @@ describe('App integration flow', () => {
     });
 
     expect(screen.getByTestId('status-banner').textContent).toContain('Single artifact upload complete: abcdef123456...');
+  });
+
+  it('preloads synthetic demo dataset from Dataset tab', async () => {
+    vi.mocked(api.preloadDemoData).mockResolvedValue({
+      profile: 'small',
+      output_dir: 'data/demo_preload/20260311_000000',
+      entities: { total_rows: 18, success_rows: 18, failed_rows: 0, errors: [] },
+      events: { total_rows: 120, success_rows: 120, failed_rows: 0, errors: [] },
+      interactions: { total_rows: 48, success_rows: 48, failed_rows: 0, errors: [] },
+      artifacts_manifest: { total_rows: 12, success_rows: 12, failed_rows: 0, errors: [] },
+      single_artifact: { artifact_id: 'x', sha256: 'y', artifact_type: 'image' },
+      features: { updated_artifacts: 13 },
+    });
+
+    render(<App />);
+
+    fireEvent.change(screen.getByTestId('input-demo-profile'), { target: { value: 'small' } });
+    fireEvent.click(screen.getByTestId('action-preload-demo'));
+
+    await waitFor(() => {
+      expect(api.preloadDemoData).toHaveBeenCalledWith('small', true);
+    });
+
+    expect(screen.getByTestId('status-banner').textContent).toContain('Demo preload complete: entities 18/18');
   });
 
   it('loads run history from Runs tab', async () => {

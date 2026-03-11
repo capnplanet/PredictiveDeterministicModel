@@ -59,7 +59,10 @@ class PredictRequest(BaseModel):
     explanations: bool = Field(True, description="Whether to compute explanations")
     narrative_mode: Literal["template", "llm", "both"] = Field(
         "template",
-        description="Narrative output mode. template keeps deterministic text; llm requests long-form narrative; both includes both.",
+        description=(
+            "Narrative output mode. template keeps deterministic text; "
+            "llm requests long-form narrative; both includes both."
+        ),
     )
 
 
@@ -116,3 +119,20 @@ class QueryResponse(BaseModel):
     interpreted_as: str
     llm_used: bool
     results: List[QueryResult]
+
+
+class DemoPreloadRequest(BaseModel):
+    profile: Literal["small", "medium"] = "small"
+    reset_existing: bool = True
+    extract_features: bool = True
+
+
+class DemoPreloadResponse(BaseModel):
+    profile: str
+    output_dir: str
+    entities: IngestionReportModel
+    events: IngestionReportModel
+    interactions: IngestionReportModel
+    artifacts_manifest: ArtifactIngestionReportModel
+    single_artifact: Dict[str, str]
+    features: Dict[str, int]

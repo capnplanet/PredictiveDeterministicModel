@@ -55,7 +55,7 @@ test('happy path: ingest -> train -> runs -> predict', async ({ page }) => {
   await page.getByTestId('tab-predict').click();
   await page.getByTestId('input-predict-ids').fill(entityA);
   await page.getByTestId('action-predict').click();
-  await expect(page.getByText(entityA)).toBeVisible();
+  await expect(page.locator('[data-testid="prediction-list"] .prediction-item strong', { hasText: entityA }).first()).toBeVisible();
 });
 
 test('failure path: invalid entities csv yields zero successful uploads', async ({ page }) => {
