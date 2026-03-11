@@ -34,6 +34,7 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: postgresql+psycopg2://analytics:analytics@localhost:5432/analytics
+      PYTHONPATH: .
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
