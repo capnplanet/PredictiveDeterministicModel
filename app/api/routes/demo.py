@@ -19,6 +19,7 @@ from app.services.artifact_ingestion import ingest_artifact_file, ingest_artifac
 from app.services.csv_ingestion import ingest_entities_csv, ingest_events_csv, ingest_interactions_csv
 from app.services.feature_extraction import extract_features_for_pending
 from app.training.synth_data import generate_synthetic_dataset
+from app.training.train import run_training
 
 router = APIRouter(prefix="/demo", tags=["demo"])
 
@@ -92,6 +93,31 @@ async def preload_demo_data(request: DemoPreloadRequest) -> DemoPreloadResponse:
         if request.extract_features:
             updated = extract_features_for_pending(session)
 
+    training_summary = None
+    if request.train_model:
+        import json
+
+        quick_train_config_path = Path(settings.data_root) / "demo_preload_train_config.json"
+        quick_train_config_path.parent.mkdir(parents=True, exist_ok=True)
+        quick_train_config_path.write_text(
+            json.dumps(
+                {
+                    "epochs": 1,
+                    "batch_size": 16,
+                    "lr": 0.001,
+                    "seed": 1234,
+                    "val_fraction": 0.2,
+                    "test_fraction": 0.2,
+                    "split_strategy": "random",
+                    "corpus_name": "demo_preload",
+                    "threshold_policy_version": "v1",
+                    "enforce_thresholds": False,
+                }
+            )
+        )
+        run_id, metrics = run_training(config_path=quick_train_config_path)
+        training_summary = {"run_id": run_id, "metrics": metrics}
+
     return DemoPreloadResponse(
         profile=request.profile,
         output_dir=str(out_dir),
@@ -105,4 +131,6 @@ async def preload_demo_data(request: DemoPreloadRequest) -> DemoPreloadResponse:
             "artifact_type": str(single_artifact.artifact_type),
         },
         features={"updated_artifacts": updated},
+        training=training_summary,
+        sample_entity_ids=[f"E{i:05d}" for i in range(min(5, n_entities))],
     )

@@ -5,7 +5,7 @@ from time import perf_counter
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from sqlalchemy import func, or_, select
 
 from app.api.schemas import (
@@ -223,27 +223,54 @@ def _render_prediction_narrative(
 @router.post("/predict", response_model=PredictResponse)
 async def predict(request: PredictRequest) -> PredictResponse:
     predict_start = perf_counter()
-    with session_scope() as session:
-        run_id = request.run_id or _load_latest_run_id(session)
+    try:
+        with session_scope() as session:
+            run_id = request.run_id or _load_latest_run_id(session)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No trained model artifact is available for inference yet. "
+                "Run a training operation first from Model Ops."
+            ),
+        ) from exc
 
-    with timed_performance_event(
-        "predict.model_load",
-        run_id=run_id,
-    ):
-        model, _ = _load_model(run_id)
+    try:
+        with timed_performance_event(
+            "predict.model_load",
+            run_id=run_id,
+        ):
+            model, _ = _load_model(run_id)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No trained model artifact is available for inference yet. "
+                "Run a training operation first from Model Ops."
+            ),
+        ) from exc
 
-    with timed_performance_event(
-        "predict.build_batch",
-        run_id=run_id,
-        requested_entities=len(request.entity_ids),
-    ):
-        encoder_cfg = EncoderConfig()
-        artifact_feat_dim = 32
-        model_inputs, attr_tensor, entity_ids, coverage = build_entity_batch_tensors(
-            entity_ids=request.entity_ids,
-            encoder_cfg=encoder_cfg,
-            artifact_feat_dim=artifact_feat_dim,
-        )
+    try:
+        with timed_performance_event(
+            "predict.build_batch",
+            run_id=run_id,
+            requested_entities=len(request.entity_ids),
+        ):
+            encoder_cfg = EncoderConfig()
+            artifact_feat_dim = 32
+            model_inputs, attr_tensor, entity_ids, coverage = build_entity_batch_tensors(
+                entity_ids=request.entity_ids,
+                encoder_cfg=encoder_cfg,
+                artifact_feat_dim=artifact_feat_dim,
+            )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No matching entity IDs were found for inference. "
+                "Use IDs from your ingested dataset (for demo preload, examples are E00000, E00001, E00002)."
+            ),
+        ) from exc
 
     bsz = attr_tensor.size(0)
 

@@ -124,6 +124,7 @@ describe('App integration flow', () => {
       artifacts_manifest: { total_rows: 12, success_rows: 12, failed_rows: 0, errors: [] },
       single_artifact: { artifact_id: 'x', sha256: 'y', artifact_type: 'image' },
       features: { updated_artifacts: 13 },
+      training: { run_id: 'demo_run_123', metrics: { reg_mae: 0.1 } },
     });
 
     render(<App />);
@@ -132,7 +133,7 @@ describe('App integration flow', () => {
     fireEvent.click(screen.getByTestId('action-preload-demo'));
 
     await waitFor(() => {
-      expect(api.preloadDemoData).toHaveBeenCalledWith('small', true);
+      expect(api.preloadDemoData).toHaveBeenCalledWith('small', true, true);
     });
 
     expect(screen.getByTestId('status-banner').textContent).toContain('Demo preload complete: entities 18/18');

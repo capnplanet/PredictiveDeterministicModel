@@ -14,6 +14,8 @@ export interface DemoPreloadResponse {
   artifacts_manifest: IngestionReport;
   single_artifact: { artifact_id: string; sha256: string; artifact_type: string };
   features: { updated_artifacts: number };
+  training?: { run_id: string; metrics: Record<string, number> };
+  sample_entity_ids?: string[];
 }
 
 export interface ArtifactUploadResponse {
@@ -44,11 +46,15 @@ export async function uploadArtifactsManifest(file: File): Promise<IngestionRepo
   return uploadCsv('/ingest/artifacts', file);
 }
 
-export async function preloadDemoData(profile: 'small' | 'medium', resetExisting = true): Promise<DemoPreloadResponse> {
+export async function preloadDemoData(
+  profile: 'small' | 'medium',
+  resetExisting = true,
+  trainModel = true,
+): Promise<DemoPreloadResponse> {
   const res = await fetch('/demo/preload', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ profile, reset_existing: resetExisting, extract_features: true }),
+    body: JSON.stringify({ profile, reset_existing: resetExisting, extract_features: true, train_model: trainModel }),
   });
   if (!res.ok) {
     throw new Error(`Demo preload failed: ${res.status}`);

@@ -125,6 +125,12 @@ class DemoPreloadRequest(BaseModel):
     profile: Literal["small", "medium"] = "small"
     reset_existing: bool = True
     extract_features: bool = True
+    train_model: bool = True
+
+
+class DemoPreloadTrainingSummary(BaseModel):
+    run_id: str
+    metrics: Dict[str, float]
 
 
 class DemoPreloadResponse(BaseModel):
@@ -136,3 +142,5 @@ class DemoPreloadResponse(BaseModel):
     artifacts_manifest: ArtifactIngestionReportModel
     single_artifact: Dict[str, str]
     features: Dict[str, int]
+    training: Optional[DemoPreloadTrainingSummary] = None
+    sample_entity_ids: List[str] = []

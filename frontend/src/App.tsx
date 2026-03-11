@@ -137,11 +137,16 @@ export const App: React.FC = () => {
   };
 
   const handlePreloadDemo = async () => {
-    setStatusMessage(`Preloading ${demoProfile} synthetic demo dataset across all ingestion points...`, 'warning');
+    setStatusMessage(`Preloading ${demoProfile} synthetic demo dataset and training a starter model...`, 'warning');
     try {
-      const res = await preloadDemoData(demoProfile, true);
+      const res = await preloadDemoData(demoProfile, true, true);
+      const trainingSuffix = res.training?.run_id ? ` trained run ${res.training.run_id}.` : '';
+      const sampleHint =
+        res.sample_entity_ids && res.sample_entity_ids.length > 0
+          ? ` Try inference IDs: ${res.sample_entity_ids.join(', ')}.`
+          : '';
       setStatusMessage(
-        `Demo preload complete: entities ${res.entities.success_rows}/${res.entities.total_rows}, events ${res.events.success_rows}/${res.events.total_rows}, interactions ${res.interactions.success_rows}/${res.interactions.total_rows}, artifacts ${res.artifacts_manifest.success_rows}/${res.artifacts_manifest.total_rows}, features updated ${res.features.updated_artifacts}.`,
+        `Demo preload complete: entities ${res.entities.success_rows}/${res.entities.total_rows}, events ${res.events.success_rows}/${res.events.total_rows}, interactions ${res.interactions.success_rows}/${res.interactions.total_rows}, artifacts ${res.artifacts_manifest.success_rows}/${res.artifacts_manifest.total_rows}, features updated ${res.features.updated_artifacts}.${trainingSuffix}${sampleHint}`,
         'success',
       );
     } catch (error) {
