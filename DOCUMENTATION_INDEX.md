@@ -14,7 +14,31 @@ This repository now includes comprehensive documentation explaining the system, 
 
 ---
 
-### 2. [QUICK_START_GUIDE.md](QUICK_START_GUIDE.md) (9.2KB)
+### 2. [UI_USER_GUIDE.md](UI_USER_GUIDE.md)
+**Purpose**: End-user operational guide for the current frontend console  
+**Best for**: Analysts, operators, and demo presenters using the web UI
+
+**Contents**:
+- Full UI layout and navigation overview
+- Exact tab-by-tab workflows aligned with current labels:
+	- Data Intake
+	- Model Ops
+	- Run Ledger
+	- Inference
+- Global status banner behavior and message patterns
+- CSV expectations for UI ingestion flows
+- Error handling and troubleshooting playbook
+- UI-to-API endpoint mapping reference
+- Known UI scope (what is and is not exposed)
+
+**Use when you need**:
+- A step-by-step guide to operate the current UI
+- Demo-ready instructions tied to exact button/tab names
+- Troubleshooting for upload, train, run sync, and predict issues
+
+---
+
+### 3. [QUICK_START_GUIDE.md](QUICK_START_GUIDE.md) (9.2KB)
 **Purpose**: Rapid onboarding and reference guide  
 **Best for**: Developers who want to get started immediately
 
@@ -34,7 +58,7 @@ This repository now includes comprehensive documentation explaining the system, 
 
 ---
 
-### 3. [COMPREHENSIVE_REPOSITORY_GUIDE.md](COMPREHENSIVE_REPOSITORY_GUIDE.md) (46KB)
+### 4. [COMPREHENSIVE_REPOSITORY_GUIDE.md](COMPREHENSIVE_REPOSITORY_GUIDE.md) (46KB)
 **Purpose**: Complete technical and business documentation  
 **Best for**: Technical leads, architects, and product managers
 
@@ -105,7 +129,7 @@ This repository now includes comprehensive documentation explaining the system, 
 
 ---
 
-### 4. [ARCHITECTURE_DIAGRAMS.md](ARCHITECTURE_DIAGRAMS.md) (27KB)
+### 5. [ARCHITECTURE_DIAGRAMS.md](ARCHITECTURE_DIAGRAMS.md) (27KB)
 **Purpose**: Visual reference for system architecture and data flows  
 **Best for**: Visual learners, system architects, and documentation teams
 
@@ -196,10 +220,11 @@ This repository now includes comprehensive documentation explaining the system, 
 | Document | Size | Purpose | Key Sections |
 |----------|------|---------|--------------|
 | README.md | 1.9KB | Entry point | Quick start, features |
+| UI_USER_GUIDE.md | 12KB | Current UI operations | Tabs, workflows, troubleshooting |
 | QUICK_START_GUIDE.md | 9.2KB | Rapid onboarding | API examples, formats |
 | COMPREHENSIVE_REPOSITORY_GUIDE.md | 46KB | Complete guide | Architecture, integration, use cases |
 | ARCHITECTURE_DIAGRAMS.md | 27KB | Visual reference | Diagrams, flows |
-| **Total** | **84.1KB** | **Full coverage** | **All aspects** |
+| **Total** | **96.1KB** | **Full coverage** | **All aspects including UI operations** |
 
 ---
 
@@ -238,6 +263,7 @@ This repository now includes comprehensive documentation explaining the system, 
 
 ---
 
-*Documentation Version: 1.0*  
+*Documentation Version: 1.1*  
 *Created: January 2026*  
-*Total Documentation: 84.1KB across 4 comprehensive files*
+*Updated: March 2026*  
+*Total Documentation: 96.1KB across 5 comprehensive files*

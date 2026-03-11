@@ -1,0 +1,47 @@
+:root {
+  --font-body: 'Space Grotesk', 'Saira Semi Condensed', sans-serif;
+  --font-display: 'Saira Semi Condensed', sans-serif;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+
+  --radius-sm: 10px;
+  --radius-md: 14px;
+
+  --motion-fast: 180ms;
+  --motion-mid: 300ms;
+
+  --bg-base: #0c1118;
+  --bg-surface: rgba(16, 24, 36, 0.88);
+  --bg-surface-strong: #121b29;
+  --bg-elevated: rgba(9, 15, 24, 0.9);
+  --line-muted: rgba(162, 188, 220, 0.24);
+  --line-strong: rgba(140, 194, 255, 0.42);
+  --text-main: #dbe8f7;
+  --text-muted: #95abc3;
+  --accent-cyan: #6fc1ff;
+  --accent-amber: #d9b36c;
+  --ok: #53c89e;
+  --warn: #d9b36c;
+  --err: #ff7f7f;
+}
+
+[data-theme='enterprise-light'] {
+  --bg-base: #edf2f8;
+  --bg-surface: rgba(255, 255, 255, 0.9);
+  --bg-surface-strong: #ffffff;
+  --bg-elevated: #f6f9fe;
+  --line-muted: rgba(26, 59, 97, 0.18);
+  --line-strong: rgba(18, 104, 192, 0.42);
+  --text-main: #112840;
+  --text-muted: #3e5b79;
+  --accent-cyan: #1268c0;
+  --accent-amber: #9f6d1a;
+  --ok: #1e9466;
+  --warn: #b8852b;
+  --err: #c24a4a;
+}

@@ -1,95 +1,320 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { uploadCsv, triggerTrain, listRuns, predict, RunInfo, EntityPrediction } from './api';
+import './App.css';
 
 type Tab = 'dataset' | 'train' | 'runs' | 'predict';
+type StatusTone = 'neutral' | 'success' | 'warning' | 'error';
+
+type IconName = 'upload' | 'train' | 'ledger' | 'predict' | 'shield' | 'pulse' | 'chip';
+
+const Icon: React.FC<{ name: IconName; className?: string }> = ({ name, className }) => {
+  const common = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+  if (name === 'upload') {
+    return (
+      <svg className={className} {...common}>
+        <path d="M12 16V5" />
+        <path d="m7 10 5-5 5 5" />
+        <path d="M4 19h16" />
+      </svg>
+    );
+  }
+  if (name === 'train') {
+    return (
+      <svg className={className} {...common}>
+        <rect x="4" y="4" width="16" height="16" rx="2" />
+        <path d="M9 4v4" />
+        <path d="M15 4v4" />
+        <path d="M9 16v4" />
+        <path d="M15 16v4" />
+        <path d="M4 9h4" />
+        <path d="M4 15h4" />
+        <path d="M16 9h4" />
+        <path d="M16 15h4" />
+      </svg>
+    );
+  }
+  if (name === 'ledger') {
+    return (
+      <svg className={className} {...common}>
+        <path d="M6 3h9l3 3v15H6z" />
+        <path d="M15 3v3h3" />
+        <path d="M9 11h6" />
+        <path d="M9 15h6" />
+      </svg>
+    );
+  }
+  if (name === 'predict') {
+    return (
+      <svg className={className} {...common}>
+        <circle cx="11" cy="11" r="7" />
+        <path d="M21 21l-4.3-4.3" />
+        <path d="M11 8v6" />
+        <path d="M8 11h6" />
+      </svg>
+    );
+  }
+  if (name === 'pulse') {
+    return (
+      <svg className={className} {...common}>
+        <path d="M3 12h4l2-4 4 8 2-4h6" />
+      </svg>
+    );
+  }
+  if (name === 'chip') {
+    return (
+      <svg className={className} {...common}>
+        <rect x="5" y="5" width="14" height="14" rx="2" />
+        <path d="M9 9h6v6H9z" />
+      </svg>
+    );
+  }
+  return (
+    <svg className={className} {...common}>
+      <path d="M12 3 4 7v6c0 4.5 3.1 7.9 8 9 4.9-1.1 8-4.5 8-9V7l-8-4z" />
+      <path d="m9 12 2 2 4-4" />
+    </svg>
+  );
+};
+
+const formatMetric = (value: number | undefined): string => {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 'n/a';
+  return value.toFixed(3);
+};
 
 export const App: React.FC = () => {
   const [tab, setTab] = useState<Tab>('dataset');
   const [runs, setRuns] = useState<RunInfo[]>([]);
   const [predictions, setPredictions] = useState<EntityPrediction[]>([]);
-  const [status, setStatus] = useState<string>('');
+  const [status, setStatus] = useState<{ message: string; tone: StatusTone }>({
+    message: 'Operational console ready.',
+    tone: 'neutral',
+  });
+
+  const setStatusMessage = (message: string, tone: StatusTone = 'neutral') => {
+    setStatus({ message, tone });
+  };
 
   const handleUpload = async (kind: 'entities' | 'events' | 'interactions', file: File | null) => {
     if (!file) return;
-    setStatus(`Uploading ${kind}...`);
-    const path = `/ingest/${kind}`;
-    const res = await uploadCsv(path, file);
-    setStatus(`Uploaded ${kind}: ${res.success_rows} rows`);
+    setStatusMessage(`Uploading ${kind} dataset...`, 'warning');
+    try {
+      const path = `/ingest/${kind}`;
+      const res = await uploadCsv(path, file);
+      setStatusMessage(`Upload complete: ${kind} (${res.success_rows}/${res.total_rows} rows).`, 'success');
+    } catch (error) {
+      setStatusMessage(`Upload failed for ${kind}. ${(error as Error).message}`, 'error');
+    }
   };
 
   const handleTrain = async () => {
-    setStatus('Training...');
-    const res = await triggerTrain();
-    setStatus(`Trained run ${res.run_id}`);
+    setStatusMessage('Model training operation started...', 'warning');
+    try {
+      const res = await triggerTrain();
+      setStatusMessage(`Training complete. Run ID: ${res.run_id}`, 'success');
+    } catch (error) {
+      setStatusMessage(`Training failed. ${(error as Error).message}`, 'error');
+    }
   };
 
   const handleRefreshRuns = async () => {
-    const data = await listRuns();
-    setRuns(data);
+    setStatusMessage('Syncing run ledger...', 'warning');
+    try {
+      const data = await listRuns();
+      setRuns(data);
+      setStatusMessage(`Run ledger refreshed. ${data.length} records available.`, 'success');
+    } catch (error) {
+      setStatusMessage(`Run refresh failed. ${(error as Error).message}`, 'error');
+    }
   };
 
   const handlePredict = async (entityIds: string) => {
     const ids = entityIds.split(',').map((s) => s.trim()).filter(Boolean);
-    if (ids.length === 0) return;
-    const res = await predict(ids);
-    setPredictions(res.predictions);
+    if (ids.length === 0) {
+      setStatusMessage('Enter at least one entity ID before prediction.', 'warning');
+      return;
+    }
+    setStatusMessage(`Generating predictions for ${ids.length} entities...`, 'warning');
+    try {
+      const res = await predict(ids);
+      setPredictions(res.predictions);
+      setStatusMessage(`Prediction complete from run ${res.run_id}.`, 'success');
+    } catch (error) {
+      setStatusMessage(`Prediction failed. ${(error as Error).message}`, 'error');
+    }
   };
 
+  const activeTitle: Record<Tab, string> = {
+    dataset: 'Data Intake Zone',
+    train: 'Model Operation',
+    runs: 'Run Ledger',
+    predict: 'Inference Console',
+  };
+
+  const latestRun = useMemo(() => {
+    if (runs.length === 0) return null;
+    return [...runs].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+  }, [runs]);
+
+  const runCards = useMemo(() => {
+    if (!latestRun) {
+      return [
+        { label: 'Latest Run', value: 'n/a', icon: 'ledger' as IconName },
+        { label: 'Run Count', value: String(runs.length), icon: 'pulse' as IconName },
+        { label: 'Model Health', value: 'n/a', icon: 'shield' as IconName },
+      ];
+    }
+    const regR2 = latestRun.metrics?.reg_r2;
+    const clsF1 = latestRun.metrics?.cls_f1;
+    const ndcg = latestRun.metrics?.['rank_ndcg@10'];
+    const health = [regR2, clsF1, ndcg].filter((v): v is number => typeof v === 'number');
+    const score = health.length > 0 ? health.reduce((a, b) => a + b, 0) / health.length : NaN;
+
+    return [
+      { label: 'Latest Run', value: latestRun.run_id.slice(0, 12), icon: 'ledger' as IconName },
+      { label: 'Run Count', value: String(runs.length), icon: 'pulse' as IconName },
+      { label: 'Model Health', value: formatMetric(score), icon: 'shield' as IconName },
+    ];
+  }, [latestRun, runs.length]);
+
   return (
-    <div style={{ padding: '1rem', fontFamily: 'sans-serif' }}>
-      <h1>Deterministic Multimodal Analytics</h1>
-      <nav style={{ marginBottom: '1rem' }}>
-        <button onClick={() => setTab('dataset')}>Dataset</button>
-        <button onClick={() => setTab('train')}>Train</button>
-        <button onClick={() => setTab('runs')}>Runs</button>
-        <button onClick={() => setTab('predict')}>Predict</button>
+    <div className="app-shell">
+      <div className="bg-grid" aria-hidden="true" />
+      <header className="mission-header">
+        <div>
+          <p className="kicker">Deterministic Analytics Platform</p>
+          <h1>Defense-Grade Decision Console</h1>
+          <p className="subtitle">Controlled workflows for data intake, model training, and explainable prediction operations.</p>
+        </div>
+        <div className="header-badges">
+          <div className="badge">
+            <span className="badge-label">Mode</span>
+            <strong>Development</strong>
+          </div>
+          <div className="badge">
+            <span className="badge-label">Active View</span>
+            <strong>{activeTitle[tab]}</strong>
+          </div>
+        </div>
+      </header>
+
+      <nav className="tab-rail" aria-label="Navigation">
+        <button data-testid="tab-dataset" className={tab === 'dataset' ? 'tab active' : 'tab'} onClick={() => setTab('dataset')}>
+          <Icon className="tab-icon" name="upload" />
+          Data Intake
+        </button>
+        <button data-testid="tab-train" className={tab === 'train' ? 'tab active' : 'tab'} onClick={() => setTab('train')}>
+          <Icon className="tab-icon" name="train" />
+          Model Ops
+        </button>
+        <button data-testid="tab-runs" className={tab === 'runs' ? 'tab active' : 'tab'} onClick={() => setTab('runs')}>
+          <Icon className="tab-icon" name="ledger" />
+          Run Ledger
+        </button>
+        <button data-testid="tab-predict" className={tab === 'predict' ? 'tab active' : 'tab'} onClick={() => setTab('predict')}>
+          <Icon className="tab-icon" name="predict" />
+          Inference
+        </button>
       </nav>
-      <p>{status}</p>
+
+      <div data-testid="status-banner" className={`status-banner ${status.tone}`}>
+        <span className="status-dot" aria-hidden="true" />
+        <span>{status.message}</span>
+      </div>
+
       {tab === 'dataset' && (
-        <section>
-          <h2>Upload CSVs</h2>
-          <div>
-            <label>
-              Entities CSV:
-              <input type="file" accept=".csv" onChange={(e) => handleUpload('entities', e.target.files?.[0] ?? null)} />
+        <section className="panel fade-in">
+          <h2>Data Intake Zone</h2>
+          <p className="panel-intro">Load mission datasets in staged order to maintain deterministic run provenance.</p>
+          <div className="upload-grid">
+            <label className="upload-card" htmlFor="entities-csv">
+              <span className="upload-title">Entities Manifest</span>
+              <span className="upload-help">Primary profile vectors and targets</span>
+              <input
+                id="entities-csv"
+                data-testid="upload-entities"
+                type="file"
+                accept=".csv"
+                onChange={(e) => handleUpload('entities', e.target.files?.[0] ?? null)}
+              />
             </label>
-          </div>
-          <div>
-            <label>
-              Events CSV:
-              <input type="file" accept=".csv" onChange={(e) => handleUpload('events', e.target.files?.[0] ?? null)} />
+            <label className="upload-card" htmlFor="events-csv">
+              <span className="upload-title">Events Stream</span>
+              <span className="upload-help">Time-series operational events</span>
+              <input
+                id="events-csv"
+                data-testid="upload-events"
+                type="file"
+                accept=".csv"
+                onChange={(e) => handleUpload('events', e.target.files?.[0] ?? null)}
+              />
             </label>
-          </div>
-          <div>
-            <label>
-              Interactions CSV:
-              <input type="file" accept=".csv" onChange={(e) => handleUpload('interactions', e.target.files?.[0] ?? null)} />
+            <label className="upload-card" htmlFor="interactions-csv">
+              <span className="upload-title">Interactions Graph</span>
+              <span className="upload-help">Cross-entity relationship intelligence</span>
+              <input
+                id="interactions-csv"
+                data-testid="upload-interactions"
+                type="file"
+                accept=".csv"
+                onChange={(e) => handleUpload('interactions', e.target.files?.[0] ?? null)}
+              />
             </label>
           </div>
         </section>
       )}
       {tab === 'train' && (
-        <section>
-          <h2>Train</h2>
-          <button onClick={handleTrain}>Start Training</button>
+        <section className="panel fade-in">
+          <h2>Model Operation</h2>
+          <p className="panel-intro">Execute deterministic training with fixed seed controls and auditable metrics output.</p>
+          <button data-testid="action-train" className="primary-action" onClick={handleTrain}>
+            Execute Training Operation
+          </button>
         </section>
       )}
       {tab === 'runs' && (
-        <section>
-          <h2>Runs</h2>
-          <button onClick={handleRefreshRuns}>Refresh</button>
-          <ul>
+        <section className="panel fade-in">
+          <h2>Run Ledger</h2>
+          <p className="panel-intro">Review run identifiers and timestamps for governance-grade traceability.</p>
+          <div className="metrics-grid" data-testid="run-metrics-grid">
+            {runCards.map((card) => (
+              <article className="metric-card" key={card.label}>
+                <Icon className="metric-icon" name={card.icon} />
+                <span className="metric-label">{card.label}</span>
+                <strong className="metric-value">{card.value}</strong>
+              </article>
+            ))}
+          </div>
+          <button data-testid="action-refresh-runs" className="secondary-action" onClick={handleRefreshRuns}>
+            Sync Run Ledger
+          </button>
+          <ul className="run-list" data-testid="runs-list">
             {runs.map((r) => (
-              <li key={r.run_id}>
-                {r.run_id} – {r.created_at}
+              <li key={r.run_id} className="run-item">
+                <span className="run-id">{r.run_id}</span>
+                <span className="run-date">{new Date(r.created_at).toLocaleString()}</span>
+                <div className="metric-chip-row">
+                  <span className="metric-chip">
+                    <Icon className="chip-icon" name="pulse" />
+                    r2 {formatMetric(r.metrics?.reg_r2)}
+                  </span>
+                  <span className="metric-chip">
+                    <Icon className="chip-icon" name="chip" />
+                    f1 {formatMetric(r.metrics?.cls_f1)}
+                  </span>
+                  <span className="metric-chip">
+                    <Icon className="chip-icon" name="predict" />
+                    ndcg {formatMetric(r.metrics?.['rank_ndcg@10'])}
+                  </span>
+                </div>
               </li>
             ))}
           </ul>
         </section>
       )}
       {tab === 'predict' && (
-        <section>
-          <h2>Predict</h2>
+        <section className="panel fade-in">
+          <h2>Inference Console</h2>
+          <p className="panel-intro">Run explainable predictions against selected entity IDs and inspect ranked outputs.</p>
           <PredictForm onPredict={handlePredict} predictions={predictions} />
         </section>
       )}
@@ -104,19 +329,58 @@ interface PredictFormProps {
 
 const PredictForm: React.FC<PredictFormProps> = ({ onPredict, predictions }) => {
   const [ids, setIds] = useState('');
+  const predictCards = useMemo(() => {
+    if (predictions.length === 0) {
+      return [
+        { label: 'Entities Predicted', value: '0', icon: 'predict' as IconName },
+        { label: 'Avg Probability', value: 'n/a', icon: 'pulse' as IconName },
+        { label: 'Avg Rank Score', value: 'n/a', icon: 'chip' as IconName },
+      ];
+    }
+    const avgProb = predictions.reduce((acc, p) => acc + p.probability, 0) / predictions.length;
+    const avgRank = predictions.reduce((acc, p) => acc + p.ranking_score, 0) / predictions.length;
+
+    return [
+      { label: 'Entities Predicted', value: String(predictions.length), icon: 'predict' as IconName },
+      { label: 'Avg Probability', value: formatMetric(avgProb), icon: 'pulse' as IconName },
+      { label: 'Avg Rank Score', value: formatMetric(avgRank), icon: 'chip' as IconName },
+    ];
+  }, [predictions]);
+
   return (
-    <div>
+    <div className="predict-console">
+      <div className="metrics-grid" data-testid="predict-metrics-grid">
+        {predictCards.map((card) => (
+          <article className="metric-card" key={card.label}>
+            <Icon className="metric-icon" name={card.icon} />
+            <span className="metric-label">{card.label}</span>
+            <strong className="metric-value">{card.value}</strong>
+          </article>
+        ))}
+      </div>
       <input
+        data-testid="input-predict-ids"
+        className="text-input"
         type="text"
-        placeholder="Entity IDs comma-separated"
+        placeholder="Enter entity IDs (comma separated)"
         value={ids}
         onChange={(e) => setIds(e.target.value)}
       />
-      <button onClick={() => onPredict(ids)}>Predict</button>
-      <ul>
+      <button data-testid="action-predict" className="primary-action" onClick={() => onPredict(ids)}>
+        Execute Inference
+      </button>
+      <ul className="prediction-list" data-testid="prediction-list">
         {predictions.map((p) => (
-          <li key={p.entity_id}>
-            {p.entity_id}: reg={p.regression.toFixed(3)} prob={p.probability.toFixed(3)} rank={p.ranking_score.toFixed(3)}
+          <li className="prediction-item" key={p.entity_id}>
+            <div className="prediction-header">
+              <Icon className="metric-icon" name="shield" />
+              <strong>{p.entity_id}</strong>
+            </div>
+            <div className="metric-chip-row">
+              <span className="metric-chip">Reg {p.regression.toFixed(3)}</span>
+              <span className="metric-chip">Prob {p.probability.toFixed(3)}</span>
+              <span className="metric-chip">Rank {p.ranking_score.toFixed(3)}</span>
+            </div>
           </li>
         ))}
       </ul>

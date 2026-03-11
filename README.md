@@ -6,6 +6,8 @@ This repository implements a deterministic, domain-agnostic analytics stack with
 
 For comprehensive information about this repository and how to use it in enterprise environments:
 
+- **[UI User Guide](UI_USER_GUIDE.md)** - Detailed walkthrough of the current Defense-Grade Decision Console UI, including tab-by-tab workflows, status messaging, CSV expectations, troubleshooting, and UI-to-API mapping
+
 - **[Quick Start Guide](QUICK_START_GUIDE.md)** - Get up and running in 5 minutes with curl examples, CSV formats, and troubleshooting
 
 - **[Comprehensive Repository Guide](COMPREHENSIVE_REPOSITORY_GUIDE.md)** - Complete 46KB guide with:

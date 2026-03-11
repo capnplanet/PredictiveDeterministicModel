@@ -30,7 +30,7 @@ describe('App integration flow', () => {
 
     render(<App />);
 
-    const entitiesInput = screen.getByLabelText('Entities CSV:') as HTMLInputElement;
+    const entitiesInput = screen.getByTestId('upload-entities') as HTMLInputElement;
     const file = new File(['entity_id,attributes\nE1,"{}"'], 'entities.csv', { type: 'text/csv' });
     fireEvent.change(entitiesInput, { target: { files: [file] } });
 
@@ -38,7 +38,7 @@ describe('App integration flow', () => {
       expect(api.uploadCsv).toHaveBeenCalledWith('/ingest/entities', file);
     });
 
-    expect(screen.getByText('Uploaded entities: 1 rows')).toBeInTheDocument();
+    expect(screen.getByTestId('status-banner').textContent).toContain('Upload complete: entities (1/1 rows).');
   });
 
   it('trains model from Train tab', async () => {
@@ -49,14 +49,14 @@ describe('App integration flow', () => {
 
     render(<App />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Train' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Start Training' }));
+    fireEvent.click(screen.getByTestId('tab-train'));
+    fireEvent.click(screen.getByTestId('action-train'));
 
     await waitFor(() => {
       expect(api.triggerTrain).toHaveBeenCalledTimes(1);
     });
 
-    expect(screen.getByText('Trained run run_123')).toBeInTheDocument();
+    expect(screen.getByTestId('status-banner').textContent).toContain('Training complete. Run ID: run_123');
   });
 
   it('loads run history from Runs tab', async () => {
@@ -66,14 +66,14 @@ describe('App integration flow', () => {
 
     render(<App />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Runs' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    fireEvent.click(screen.getByTestId('tab-runs'));
+    fireEvent.click(screen.getByTestId('action-refresh-runs'));
 
     await waitFor(() => {
       expect(api.listRuns).toHaveBeenCalledTimes(1);
     });
 
-    expect(screen.getByText(/run_a/)).toBeInTheDocument();
+    expect(screen.getAllByText('run_a').length).toBeGreaterThan(0);
   });
 
   it('predicts from Predict tab', async () => {
@@ -84,14 +84,17 @@ describe('App integration flow', () => {
 
     render(<App />);
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Predict' })[0]);
-    fireEvent.change(screen.getByPlaceholderText('Entity IDs comma-separated'), { target: { value: 'E1, E2' } });
-    fireEvent.click(screen.getAllByRole('button', { name: 'Predict' })[1]);
+    fireEvent.click(screen.getByTestId('tab-predict'));
+    fireEvent.change(screen.getByTestId('input-predict-ids'), { target: { value: 'E1, E2' } });
+    fireEvent.click(screen.getByTestId('action-predict'));
 
     await waitFor(() => {
       expect(api.predict).toHaveBeenCalledWith(['E1', 'E2']);
     });
 
-    expect(screen.getByText(/E1: reg=0.110 prob=0.720 rank=0.400/)).toBeInTheDocument();
+    expect(screen.getByText('E1')).toBeInTheDocument();
+    expect(screen.getByText('Reg 0.110')).toBeInTheDocument();
+    expect(screen.getByText('Prob 0.720')).toBeInTheDocument();
+    expect(screen.getByText('Rank 0.400')).toBeInTheDocument();
   });
 });
