@@ -30,7 +30,9 @@ def test_threshold_policy_flags_violations() -> None:
 
     result = _evaluate_thresholds(metrics, cfg)
     assert result["passed"] is False
-    assert len(result["violations"]) >= 1
+    violations = result["violations"]
+    assert isinstance(violations, list)
+    assert len(violations) >= 1
 
 
 @pytest.mark.unit
