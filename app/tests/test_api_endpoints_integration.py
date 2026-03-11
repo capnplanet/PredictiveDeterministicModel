@@ -137,3 +137,31 @@ def test_ingest_train_predict_api_flow() -> None:
     assert isinstance(query_body["llm_used"], bool)
     assert isinstance(query_body["results"], list)
     assert any(item["entity_id"] == entity_a for item in query_body["results"])
+
+    strongest_query = client.post(
+        "/query",
+        json={
+            "query": "show entities with strongest relationship signals",
+            "run_id": train_body["run_id"],
+            "limit": 2,
+        },
+    )
+    assert strongest_query.status_code == 200
+    strongest_results = strongest_query.json()["results"]
+    assert len(strongest_results) >= 1
+    strongest_scores = [float(item["ranking_score"]) for item in strongest_results]
+    assert strongest_scores == sorted(strongest_scores, reverse=True)
+
+    weakest_query = client.post(
+        "/query",
+        json={
+            "query": "show entities with weakest relationship signals",
+            "run_id": train_body["run_id"],
+            "limit": 2,
+        },
+    )
+    assert weakest_query.status_code == 200
+    weakest_results = weakest_query.json()["results"]
+    assert len(weakest_results) >= 1
+    weakest_scores = [float(item["ranking_score"]) for item in weakest_results]
+    assert weakest_scores == sorted(weakest_scores)
