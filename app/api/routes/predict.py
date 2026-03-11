@@ -5,7 +5,6 @@ from typing import Dict, List, Tuple
 
 import torch
 from fastapi import APIRouter
-from sqlalchemy import select
 
 from app.api.schemas import (
     ArtifactAttribution,
@@ -15,11 +14,12 @@ from app.api.schemas import (
     PredictRequest,
     PredictResponse,
 )
-from app.core.config import get_settings
 from app.core.performance import emit_performance_event, timed_performance_event
-from app.db.models import Entity, ModelRun
+from app.core.config import get_settings
+from app.db.models import ModelRun
 from app.db.session import session_scope
 from app.training.model import EncoderConfig, FullModel
+from app.training.train import build_entity_batch_tensors
 
 router = APIRouter(prefix="", tags=["predict"])
 
@@ -56,26 +56,6 @@ def _load_model(run_id: str) -> Tuple[FullModel, Dict[str, float]]:
     if metrics_path.exists():
         metrics = json.loads(metrics_path.read_text())
     return model, metrics
-
-
-def _build_entity_batch(entity_ids: List[str]) -> Tuple[torch.Tensor, List[str]]:
-    with session_scope() as session:
-        entities: List[Entity] = (
-            session.execute(select(Entity).where(Entity.entity_id.in_(entity_ids))).scalars().all()
-        )
-    if not entities:
-        raise RuntimeError("No matching entities found")
-    ids: List[str] = []
-    attrs: List[List[float]] = []
-    for e in entities:
-        attrs_dict = e.attributes or {}
-        x = float(attrs_dict.get("x", 0.0))
-        y = float(attrs_dict.get("y", 0.0))
-        z = float(attrs_dict.get("z", 0.0))
-        ids.append(e.entity_id)
-        attrs.append([x, y, z])
-    attr_tensor = torch.tensor(attrs, dtype=torch.float32)
-    return attr_tensor, ids
 
 
 def _integrated_gradients_fused(model: FullModel, fused: torch.Tensor, target: torch.Tensor) -> List[float]:
@@ -155,15 +135,15 @@ async def predict(request: PredictRequest) -> PredictResponse:
         run_id=run_id,
         requested_entities=len(request.entity_ids),
     ):
-        attr_tensor, entity_ids = _build_entity_batch(request.entity_ids)
+        encoder_cfg = EncoderConfig()
+        artifact_feat_dim = 32
+        model_inputs, attr_tensor, entity_ids, coverage = build_entity_batch_tensors(
+            entity_ids=request.entity_ids,
+            encoder_cfg=encoder_cfg,
+            artifact_feat_dim=artifact_feat_dim,
+        )
 
     bsz = attr_tensor.size(0)
-    event_type_ids = torch.zeros((bsz, 4), dtype=torch.long)
-    event_values = torch.zeros((bsz, 4, 1), dtype=torch.float32)
-    event_deltas = torch.zeros((bsz, 4, 1), dtype=torch.float32)
-    neighbor_attr = torch.zeros((bsz, 1, 16), dtype=torch.float32)
-    neighbor_mask = torch.zeros((bsz, 1), dtype=torch.float32)
-    artifact_feats = torch.zeros((bsz, 1, 32), dtype=torch.float32)
 
     with timed_performance_event(
         "predict.forward",
@@ -171,15 +151,7 @@ async def predict(request: PredictRequest) -> PredictResponse:
         batch_size=bsz,
     ):
         with torch.no_grad():
-            outputs, fused_emb, attn = model(
-                event_type_ids=event_type_ids,
-                event_values=event_values,
-                event_deltas=event_deltas,
-                attr_vec=attr_tensor,
-                neighbor_attr=neighbor_attr,
-                neighbor_mask=neighbor_mask,
-                artifact_feats=artifact_feats,
-            )
+            outputs, fused_emb, attn = model(**model_inputs)
 
     preds: List[EntityPrediction] = []
 
@@ -195,7 +167,7 @@ async def predict(request: PredictRequest) -> PredictResponse:
             explanation_start = perf_counter()
             fused_single = fused_emb[i : i + 1]
             attr_single = attr_tensor[i : i + 1]
-            artifact_single = artifact_feats[i : i + 1]
+            artifact_single = model_inputs["artifact_feats"][i : i + 1]
             fused_attr = _integrated_gradients_fused(model, fused_single, outputs["regression"][i : i + 1])
             attn_weights = attn[i].detach().cpu().numpy().tolist()
             art_contrib = _artifact_attributions(model, attr_single, artifact_single)
@@ -230,5 +202,8 @@ async def predict(request: PredictRequest) -> PredictResponse:
         batch_size=len(entity_ids),
         explanations=request.explanations,
         explanation_duration_ms=round(explanation_ms, 3),
+        entities_with_events=coverage.get("entities_with_events", 0),
+        entities_with_neighbors=coverage.get("entities_with_neighbors", 0),
+        entities_with_artifacts=coverage.get("entities_with_artifacts", 0),
     )
     return PredictResponse(run_id=run_id, predictions=preds)

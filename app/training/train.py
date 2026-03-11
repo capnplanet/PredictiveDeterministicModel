@@ -5,9 +5,11 @@ import json
 import os
 import shutil
 from dataclasses import asdict, dataclass
+from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from time import perf_counter
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, cast
 
 import numpy as np
 import torch
@@ -44,6 +46,314 @@ class TrainConfig:
     batch_size: int = 32
     lr: float = 1e-3
     seed: int = 1234
+    val_fraction: float = 0.2
+    test_fraction: float = 0.2
+    split_strategy: str = "random"
+    corpus_name: str = "default"
+    threshold_policy_version: str = "v1"
+    enforce_thresholds: bool = False
+
+
+def _event_type_to_id(event_type: str, max_types: int = 32) -> int:
+    digest = hashlib.sha256(event_type.encode("utf-8")).hexdigest()
+    return int(digest[:8], 16) % max_types
+
+
+def _compress_feature_vector(vec: np.ndarray, out_dim: int) -> np.ndarray:
+    if vec.size == out_dim:
+        return vec.astype("float32")
+    if vec.size == 0:
+        return np.zeros((out_dim,), dtype="float32")
+    chunk_edges = np.linspace(0, vec.size, num=out_dim + 1, dtype=int)
+    out = np.zeros((out_dim,), dtype="float32")
+    for i in range(out_dim):
+        start, end = int(chunk_edges[i]), int(chunk_edges[i + 1])
+        if end <= start:
+            out[i] = float(vec[min(start, vec.size - 1)])
+        else:
+            out[i] = float(np.mean(vec[start:end]))
+    return out
+
+
+def _build_modality_tensors(
+    id_to_idx: Dict[str, int],
+    attr_vec_np: np.ndarray,
+    encoder_cfg: EncoderConfig,
+    artifact_feat_dim: int,
+    event_seq_len: int = 4,
+    neighbor_k: int = 1,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, Dict[str, int]]:
+    n_entities = len(id_to_idx)
+    event_type_ids = np.zeros((n_entities, event_seq_len), dtype="int64")
+    event_values = np.zeros((n_entities, event_seq_len, 1), dtype="float32")
+    event_deltas = np.zeros((n_entities, event_seq_len, 1), dtype="float32")
+    neighbor_attr = np.zeros((n_entities, neighbor_k, encoder_cfg.attr_dim), dtype="float32")
+    neighbor_mask = np.zeros((n_entities, neighbor_k), dtype="float32")
+    artifact_feats = np.zeros((n_entities, 1, artifact_feat_dim), dtype="float32")
+
+    with session_scope() as session:
+        events: List[Event] = session.execute(select(Event)).scalars().all()
+        interactions: List[Interaction] = session.execute(select(Interaction)).scalars().all()
+        artifacts: List[Artifact] = session.execute(select(Artifact)).scalars().all()
+
+    events_by_entity: Dict[str, List[Event]] = {}
+    for evt in events:
+        events_by_entity.setdefault(evt.entity_id, []).append(evt)
+
+    for entity_id, evt_list in events_by_entity.items():
+        idx = id_to_idx.get(entity_id)
+        if idx is None:
+            continue
+        # Use most recent fixed-length sequence and preserve chronological order.
+        sorted_events = sorted(evt_list, key=lambda e: e.timestamp)[-event_seq_len:]
+        prev_ts: Optional[datetime] = None
+        for t, evt in enumerate(sorted_events):
+            event_type_ids[idx, t] = _event_type_to_id(evt.event_type)
+            event_values[idx, t, 0] = float(evt.event_value)
+            if prev_ts is None:
+                event_deltas[idx, t, 0] = 0.0
+            else:
+                delta_seconds = (evt.timestamp - prev_ts).total_seconds()
+                event_deltas[idx, t, 0] = float(max(0.0, delta_seconds) / 3600.0)
+            prev_ts = evt.timestamp
+
+    # Build deterministic neighbor context from strongest outgoing interactions.
+    interaction_scores: Dict[str, Dict[str, float]] = {}
+    for inter in interactions:
+        if inter.src_entity_id not in id_to_idx or inter.dst_entity_id not in id_to_idx:
+            continue
+        src_scores = interaction_scores.setdefault(inter.src_entity_id, {})
+        src_scores[inter.dst_entity_id] = src_scores.get(inter.dst_entity_id, 0.0) + abs(
+            float(inter.interaction_value)
+        )
+
+    for src_id, dst_scores in interaction_scores.items():
+        src_idx = id_to_idx[src_id]
+        ranked = sorted(dst_scores.items(), key=lambda item: (-item[1], item[0]))
+        for k, (dst_id, _) in enumerate(ranked[:neighbor_k]):
+            dst_idx = id_to_idx[dst_id]
+            raw = attr_vec_np[dst_idx]
+            neighbor_attr[src_idx, k, : raw.shape[0]] = raw
+            neighbor_mask[src_idx, k] = 1.0
+
+    artifact_vecs: Dict[str, List[np.ndarray]] = {}
+    for art in artifacts:
+        if art.entity_id is None:
+            continue
+        if art.entity_id not in id_to_idx:
+            continue
+        vec = _load_artifact_features(art)
+        if vec is None:
+            continue
+        compressed = _compress_feature_vector(vec, artifact_feat_dim)
+        artifact_vecs.setdefault(art.entity_id, []).append(compressed)
+
+    for entity_id, vecs in artifact_vecs.items():
+        idx = id_to_idx[entity_id]
+        stacked = np.stack(vecs, axis=0)
+        artifact_feats[idx, 0, :] = stacked.mean(axis=0)
+
+    coverage = {
+        "entities_with_events": int(sum(1 for v in events_by_entity.values() if v)),
+        "entities_with_neighbors": int((neighbor_mask.sum(axis=1) > 0).sum()),
+        "entities_with_artifacts": int(sum(1 for v in artifact_vecs.values() if v)),
+        "nonzero_event_values": int(np.count_nonzero(event_values)),
+    }
+
+    return (
+        torch.from_numpy(event_type_ids),
+        torch.from_numpy(event_values),
+        torch.from_numpy(event_deltas),
+        torch.from_numpy(neighbor_attr),
+        torch.from_numpy(neighbor_mask),
+        torch.from_numpy(artifact_feats),
+        coverage,
+    )
+
+
+def _split_entity_indices(
+    n_entities: int,
+    seed: int,
+    val_fraction: float,
+    test_fraction: float,
+    split_strategy: str = "random",
+    created_at_unix: Optional[np.ndarray] = None,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    if n_entities <= 0:
+        raise ValueError("n_entities must be positive")
+    if val_fraction < 0.0 or test_fraction < 0.0:
+        raise ValueError("val_fraction and test_fraction must be non-negative")
+    if val_fraction + test_fraction >= 1.0:
+        raise ValueError("val_fraction + test_fraction must be < 1.0")
+
+    if n_entities < 5:
+        # Keep tiny datasets train-only to avoid empty or unstable holdouts.
+        all_idx = np.arange(n_entities, dtype="int64")
+        return all_idx, np.array([], dtype="int64"), np.array([], dtype="int64")
+
+    indices = np.arange(n_entities, dtype="int64")
+    if split_strategy == "time":
+        if created_at_unix is None or created_at_unix.shape[0] != n_entities:
+            raise ValueError("created_at_unix must be provided for time split strategy")
+        indices = np.argsort(created_at_unix, kind="stable").astype("int64")
+    elif split_strategy == "random":
+        rng = np.random.default_rng(seed)
+        rng.shuffle(indices)
+    else:
+        raise ValueError(f"Unsupported split_strategy: {split_strategy}")
+
+    n_val = max(1, int(round(n_entities * val_fraction)))
+    n_test = max(1, int(round(n_entities * test_fraction)))
+    max_holdout = n_entities - 1
+    if n_val + n_test > max_holdout:
+        overflow = n_val + n_test - max_holdout
+        reduce_test = min(overflow, n_test - 1)
+        n_test -= reduce_test
+        overflow -= reduce_test
+        if overflow > 0:
+            n_val = max(1, n_val - overflow)
+
+    n_train = n_entities - n_val - n_test
+    if n_train <= 0:
+        raise ValueError("split configuration produced empty training set")
+
+    train_idx = np.sort(indices[:n_train])
+    val_idx = np.sort(indices[n_train : n_train + n_val])
+    test_idx = np.sort(indices[n_train + n_val :])
+    return train_idx, val_idx, test_idx
+
+
+def _validate_split_integrity(
+    n_entities: int,
+    train_idx: np.ndarray,
+    val_idx: np.ndarray,
+    test_idx: np.ndarray,
+) -> Dict[str, int]:
+    combined = np.concatenate([train_idx, val_idx, test_idx])
+    unique_count = int(np.unique(combined).size)
+    duplicates = int(combined.size - unique_count)
+    missing = int(n_entities - unique_count)
+    overlap = int(
+        len(set(train_idx.tolist()) & set(val_idx.tolist()))
+        + len(set(train_idx.tolist()) & set(test_idx.tolist()))
+        + len(set(val_idx.tolist()) & set(test_idx.tolist()))
+    )
+    if duplicates != 0 or missing != 0 or overlap != 0:
+        raise RuntimeError(
+            f"Split integrity violation: duplicates={duplicates}, missing={missing}, overlap={overlap}"
+        )
+    return {
+        "split_duplicates": duplicates,
+        "split_missing": missing,
+        "split_overlap": overlap,
+    }
+
+
+@lru_cache(maxsize=1)
+def _threshold_policies() -> Dict[str, Dict[str, Dict[str, float]]]:
+    policy_path = Path(__file__).with_name("threshold_policies.json")
+    if not policy_path.exists():
+        raise RuntimeError(f"Threshold policy config not found: {policy_path}")
+    loaded = json.loads(policy_path.read_text())
+    if not isinstance(loaded, dict):
+        raise RuntimeError("Threshold policy config must be a JSON object")
+    return cast(Dict[str, Dict[str, Dict[str, float]]], loaded)
+
+
+def _resolve_thresholds(cfg: TrainConfig) -> Dict[str, float]:
+    policies = _threshold_policies()
+    version_policy = policies.get(cfg.threshold_policy_version)
+    if version_policy is None:
+        raise ValueError(f"Unknown threshold policy version: {cfg.threshold_policy_version}")
+    corpus_key = cfg.corpus_name.strip().lower()
+    if corpus_key in version_policy:
+        return version_policy[corpus_key]
+    return version_policy.get("default", {})
+
+
+def _evaluate_thresholds(metrics: Dict[str, float], cfg: TrainConfig) -> Dict[str, object]:
+    thresholds = _resolve_thresholds(cfg)
+    violations: List[str] = []
+    for metric_name, minimum in thresholds.items():
+        actual = float(metrics.get(metric_name, 0.0))
+        if actual < minimum:
+            violations.append(f"{metric_name}={actual:.6f} < {minimum:.6f}")
+    return {
+        "version": cfg.threshold_policy_version,
+        "corpus": cfg.corpus_name,
+        "enforced": cfg.enforce_thresholds,
+        "passed": len(violations) == 0,
+        "thresholds": thresholds,
+        "violations": violations,
+    }
+
+
+def _model_inputs_for_batch(
+    idx: Tensor,
+    batch_attr: Tensor,
+    event_type_ids_all: Tensor,
+    event_values_all: Tensor,
+    event_deltas_all: Tensor,
+    neighbor_attr_all: Tensor,
+    neighbor_mask_all: Tensor,
+    artifact_feats_all: Tensor,
+) -> Dict[str, Tensor]:
+    return {
+        "event_type_ids": event_type_ids_all[idx],
+        "event_values": event_values_all[idx],
+        "event_deltas": event_deltas_all[idx],
+        "attr_vec": batch_attr,
+        "neighbor_attr": neighbor_attr_all[idx],
+        "neighbor_mask": neighbor_mask_all[idx],
+        "artifact_feats": artifact_feats_all[idx],
+    }
+
+
+def _evaluate_split(
+    model: FullModel,
+    indices: np.ndarray,
+    attr_tensor: Tensor,
+    y_reg: Tensor,
+    y_bin: Tensor,
+    y_rank: Tensor,
+    event_type_ids_all: Tensor,
+    event_values_all: Tensor,
+    event_deltas_all: Tensor,
+    neighbor_attr_all: Tensor,
+    neighbor_mask_all: Tensor,
+    artifact_feats_all: Tensor,
+) -> Dict[str, float]:
+    if indices.size == 0:
+        return {}
+
+    idx_tensor = torch.from_numpy(indices)
+    batch_attr = attr_tensor[idx_tensor]
+    batch_reg = y_reg[idx_tensor]
+    batch_bin = y_bin[idx_tensor]
+    batch_rank = y_rank[idx_tensor]
+    inputs = _model_inputs_for_batch(
+        idx=idx_tensor,
+        batch_attr=batch_attr,
+        event_type_ids_all=event_type_ids_all,
+        event_values_all=event_values_all,
+        event_deltas_all=event_deltas_all,
+        neighbor_attr_all=neighbor_attr_all,
+        neighbor_mask_all=neighbor_mask_all,
+        artifact_feats_all=artifact_feats_all,
+    )
+
+    with torch.no_grad():
+        outputs, _, _ = model(**inputs)
+
+    metrics_reg = regression_metrics(outputs["regression"], batch_reg)
+    metrics_cls = classification_metrics(outputs["logit"], batch_bin)
+    metrics_rank = ranking_metrics(outputs["score"], batch_rank)
+
+    metrics: Dict[str, float] = {}
+    metrics.update({f"reg_{k}": v for k, v in metrics_reg.items()})
+    metrics.update({f"cls_{k}": v for k, v in metrics_cls.items()})
+    metrics.update({f"rank_{k}": v for k, v in metrics_rank.items()})
+    return metrics
 
 
 def _set_determinism(seed: int) -> None:
@@ -83,6 +393,7 @@ def _build_entity_tensors() -> Tuple[
     np.ndarray,
     np.ndarray,
     np.ndarray,
+    np.ndarray,
 ]:
     # Returns mapping entity_id->index and per-entity arrays for attributes and targets.
     with session_scope() as session:
@@ -93,6 +404,7 @@ def _build_entity_tensors() -> Tuple[
     y_reg = np.zeros((n,), dtype="float32")
     y_bin = np.zeros((n,), dtype="float32")
     y_rank = np.zeros((n,), dtype="float32")
+    created_unix = np.zeros((n,), dtype="float64")
 
     for i, ent in enumerate(entities):
         id_to_idx[ent.entity_id] = i
@@ -104,7 +416,69 @@ def _build_entity_tensors() -> Tuple[
         y_reg[i] = float(attrs.get("target_regression", 0.0))
         y_bin[i] = float(attrs.get("target_binary", 0.0))
         y_rank[i] = float(attrs.get("target_ranking", 0.0))
-    return id_to_idx, attr_vec, y_reg, y_bin, y_rank, y_reg.copy(), y_rank.copy()
+        created_unix[i] = ent.created_at.timestamp()
+    return id_to_idx, attr_vec, y_reg, y_bin, y_rank, y_reg.copy(), y_rank.copy(), created_unix
+
+
+def build_entity_batch_tensors(
+    entity_ids: List[str],
+    encoder_cfg: EncoderConfig,
+    artifact_feat_dim: int,
+) -> Tuple[Dict[str, Tensor], Tensor, List[str], Dict[str, int]]:
+    with session_scope() as session:
+        rows: List[Entity] = (
+            session.execute(select(Entity).where(Entity.entity_id.in_(entity_ids))).scalars().all()
+        )
+
+    if not rows:
+        raise RuntimeError("No matching entities found")
+
+    # Preserve request order deterministically while skipping unknown IDs.
+    row_map = {row.entity_id: row for row in rows}
+    ordered = [row_map[eid] for eid in entity_ids if eid in row_map]
+    if not ordered:
+        raise RuntimeError("No matching entities found")
+
+    id_to_idx: Dict[str, int] = {}
+    attr_vec = np.zeros((len(ordered), 3), dtype="float32")
+    resolved_ids: List[str] = []
+    for i, row in enumerate(ordered):
+        attrs = row.attributes or {}
+        x = float(attrs.get("x", 0.0))
+        y = float(attrs.get("y", 0.0))
+        z = float(attrs.get("z", 0.0))
+        attr_vec[i] = np.array([x, y, z], dtype="float32")
+        id_to_idx[row.entity_id] = i
+        resolved_ids.append(row.entity_id)
+
+    (
+        event_type_ids_all,
+        event_values_all,
+        event_deltas_all,
+        neighbor_attr_all,
+        neighbor_mask_all,
+        artifact_feats_all,
+        coverage,
+    ) = _build_modality_tensors(
+        id_to_idx=id_to_idx,
+        attr_vec_np=attr_vec,
+        encoder_cfg=encoder_cfg,
+        artifact_feat_dim=artifact_feat_dim,
+    )
+
+    idx = torch.arange(0, len(resolved_ids), dtype=torch.long)
+    attr_tensor = torch.from_numpy(attr_vec)
+    inputs = _model_inputs_for_batch(
+        idx=idx,
+        batch_attr=attr_tensor,
+        event_type_ids_all=event_type_ids_all,
+        event_values_all=event_values_all,
+        event_deltas_all=event_deltas_all,
+        neighbor_attr_all=neighbor_attr_all,
+        neighbor_mask_all=neighbor_mask_all,
+        artifact_feats_all=artifact_feats_all,
+    )
+    return inputs, attr_tensor, resolved_ids, coverage
 
 
 class EntityDataset(Dataset[Dict[str, Tensor]]):
@@ -118,7 +492,7 @@ class EntityDataset(Dataset[Dict[str, Tensor]]):
         raise NotImplementedError("EntityDataset items are built in collate_fn only")
 
 
-def _build_run_id(config: TrainConfig, data_manifest: Dict[str, str]) -> str:
+def _build_run_id(config: TrainConfig, data_manifest: Dict[str, object]) -> str:
     # Hash of config + data manifest + feature version hash + repo manifest (simplified).
     feature_hash = compute_feature_version_hash()
     repo_manifest = {"placeholder": "code_hash"}
@@ -145,12 +519,18 @@ def run_training(config_path: Optional[Path] = None) -> Tuple[str, Dict[str, flo
         batch_size=cfg.batch_size,
         lr=cfg.lr,
         seed=cfg.seed,
+        val_fraction=cfg.val_fraction,
+        test_fraction=cfg.test_fraction,
+        split_strategy=cfg.split_strategy,
+        corpus_name=cfg.corpus_name,
+        threshold_policy_version=cfg.threshold_policy_version,
+        enforce_thresholds=cfg.enforce_thresholds,
     )
 
     _set_determinism(cfg.seed)
 
     prep_started = perf_counter()
-    id_to_idx, attr_vec_np, y_reg_np, y_bin_np, y_rank_np, _, _ = _build_entity_tensors()
+    id_to_idx, attr_vec_np, y_reg_np, y_bin_np, y_rank_np, _, _, created_unix = _build_entity_tensors()
     n_entities = len(id_to_idx)
     if n_entities == 0:
         raise RuntimeError("No entities available for training")
@@ -160,6 +540,30 @@ def run_training(config_path: Optional[Path] = None) -> Tuple[str, Dict[str, flo
         entities=n_entities,
     )
 
+    train_indices, val_indices, test_indices = _split_entity_indices(
+        n_entities=n_entities,
+        seed=cfg.seed,
+        val_fraction=cfg.val_fraction,
+        test_fraction=cfg.test_fraction,
+        split_strategy=cfg.split_strategy,
+        created_at_unix=created_unix,
+    )
+    split_integrity = _validate_split_integrity(
+        n_entities=n_entities,
+        train_idx=train_indices,
+        val_idx=val_indices,
+        test_idx=test_indices,
+    )
+    emit_performance_event(
+        "training.data_split",
+        train_size=int(train_indices.size),
+        val_size=int(val_indices.size),
+        test_size=int(test_indices.size),
+        entities=n_entities,
+        split_strategy=cfg.split_strategy,
+        **split_integrity,
+    )
+
     attr_tensor = torch.from_numpy(attr_vec_np)
     y_reg = torch.from_numpy(y_reg_np)
     y_bin = torch.from_numpy(y_bin_np)
@@ -167,6 +571,25 @@ def run_training(config_path: Optional[Path] = None) -> Tuple[str, Dict[str, flo
 
     encoder_cfg = EncoderConfig()
     artifact_feat_dim = 32  # synthetic artifacts histogram size; adjusted later if needed
+    (
+        event_type_ids_all,
+        event_values_all,
+        event_deltas_all,
+        neighbor_attr_all,
+        neighbor_mask_all,
+        artifact_feats_all,
+        modality_coverage,
+    ) = _build_modality_tensors(
+        id_to_idx=id_to_idx,
+        attr_vec_np=attr_vec_np,
+        encoder_cfg=encoder_cfg,
+        artifact_feat_dim=artifact_feat_dim,
+    )
+    emit_performance_event(
+        "training.modalities",
+        **modality_coverage,
+    )
+
     model = FullModel(
         encoder_cfg,
         attr_input_dim=attr_tensor.shape[1],
@@ -178,7 +601,7 @@ def run_training(config_path: Optional[Path] = None) -> Tuple[str, Dict[str, flo
     mse = nn.MSELoss()
 
     # For simplicity, we use zero tensors for event and artifact features in this reference implementation.
-    dataset = torch.arange(0, n_entities, dtype=torch.long)
+    dataset = torch.from_numpy(train_indices)
     loader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=False, num_workers=0)
 
     model.train()
@@ -191,24 +614,17 @@ def run_training(config_path: Optional[Path] = None) -> Tuple[str, Dict[str, flo
             batch_bin = y_bin[idx]
             batch_rank = y_rank[idx]
 
-            bsz = batch_attr.size(0)
-            # Dummy but deterministic event and artifact tensors
-            event_type_ids = torch.zeros((bsz, 4), dtype=torch.long)
-            event_values = torch.zeros((bsz, 4, 1), dtype=torch.float32)
-            event_deltas = torch.zeros((bsz, 4, 1), dtype=torch.float32)
-            neighbor_attr = torch.zeros((bsz, 1, encoder_cfg.attr_dim), dtype=torch.float32)
-            neighbor_mask = torch.zeros((bsz, 1), dtype=torch.float32)
-            artifact_feats = torch.zeros((bsz, 1, artifact_feat_dim), dtype=torch.float32)
-
-            outputs, _, _ = model(
-                event_type_ids=event_type_ids,
-                event_values=event_values,
-                event_deltas=event_deltas,
-                attr_vec=batch_attr,
-                neighbor_attr=neighbor_attr,
-                neighbor_mask=neighbor_mask,
-                artifact_feats=artifact_feats,
+            inputs = _model_inputs_for_batch(
+                idx=idx,
+                batch_attr=batch_attr,
+                event_type_ids_all=event_type_ids_all,
+                event_values_all=event_values_all,
+                event_deltas_all=event_deltas_all,
+                neighbor_attr_all=neighbor_attr_all,
+                neighbor_mask_all=neighbor_mask_all,
+                artifact_feats_all=artifact_feats_all,
             )
+            outputs, _, _ = model(**inputs)
 
             reg_loss = mse(outputs["regression"], batch_reg)
             cls_loss = bce(outputs["logit"], batch_bin)
@@ -226,45 +642,103 @@ def run_training(config_path: Optional[Path] = None) -> Tuple[str, Dict[str, flo
         entities=n_entities,
     )
 
-    # Final metrics on all entities
+    # Final metrics on deterministic train/val/test splits (holdout-first)
     eval_started = perf_counter()
-    with torch.no_grad():
-        bsz = n_entities
-        event_type_ids = torch.zeros((bsz, 4), dtype=torch.long)
-        event_values = torch.zeros((bsz, 4, 1), dtype=torch.float32)
-        event_deltas = torch.zeros((bsz, 4, 1), dtype=torch.float32)
-        neighbor_attr = torch.zeros((bsz, 1, encoder_cfg.attr_dim), dtype=torch.float32)
-        neighbor_mask = torch.zeros((bsz, 1), dtype=torch.float32)
-        artifact_feats = torch.zeros((bsz, 1, artifact_feat_dim), dtype=torch.float32)
+    train_metrics = _evaluate_split(
+        model=model,
+        indices=train_indices,
+        attr_tensor=attr_tensor,
+        y_reg=y_reg,
+        y_bin=y_bin,
+        y_rank=y_rank,
+        event_type_ids_all=event_type_ids_all,
+        event_values_all=event_values_all,
+        event_deltas_all=event_deltas_all,
+        neighbor_attr_all=neighbor_attr_all,
+        neighbor_mask_all=neighbor_mask_all,
+        artifact_feats_all=artifact_feats_all,
+    )
+    val_metrics = _evaluate_split(
+        model=model,
+        indices=val_indices,
+        attr_tensor=attr_tensor,
+        y_reg=y_reg,
+        y_bin=y_bin,
+        y_rank=y_rank,
+        event_type_ids_all=event_type_ids_all,
+        event_values_all=event_values_all,
+        event_deltas_all=event_deltas_all,
+        neighbor_attr_all=neighbor_attr_all,
+        neighbor_mask_all=neighbor_mask_all,
+        artifact_feats_all=artifact_feats_all,
+    )
+    test_metrics = _evaluate_split(
+        model=model,
+        indices=test_indices,
+        attr_tensor=attr_tensor,
+        y_reg=y_reg,
+        y_bin=y_bin,
+        y_rank=y_rank,
+        event_type_ids_all=event_type_ids_all,
+        event_values_all=event_values_all,
+        event_deltas_all=event_deltas_all,
+        neighbor_attr_all=neighbor_attr_all,
+        neighbor_mask_all=neighbor_mask_all,
+        artifact_feats_all=artifact_feats_all,
+    )
 
-        outputs, fused_emb, _ = model(
-            event_type_ids=event_type_ids,
-            event_values=event_values,
-            event_deltas=event_deltas,
-            attr_vec=attr_tensor,
-            neighbor_attr=neighbor_attr,
-            neighbor_mask=neighbor_mask,
-            artifact_feats=artifact_feats,
-        )
+    # Keep API compatibility by exposing unsuffixed metrics as primary holdout metrics.
+    primary_metrics = test_metrics if test_metrics else train_metrics
+    all_metrics: Dict[str, float] = dict(primary_metrics)
+    all_metrics.update({f"train_{k}": v for k, v in train_metrics.items()})
+    all_metrics.update({f"val_{k}": v for k, v in val_metrics.items()})
+    all_metrics.update({f"test_{k}": v for k, v in test_metrics.items()})
+    all_metrics["split_train_size"] = float(train_indices.size)
+    all_metrics["split_val_size"] = float(val_indices.size)
+    all_metrics["split_test_size"] = float(test_indices.size)
 
-    metrics_reg = regression_metrics(outputs["regression"], y_reg)
-    metrics_cls = classification_metrics(outputs["logit"], y_bin)
-    metrics_rank = ranking_metrics(outputs["score"], y_rank)
-    all_metrics: Dict[str, float] = {}
-    all_metrics.update({f"reg_{k}": v for k, v in metrics_reg.items()})
-    all_metrics.update({f"cls_{k}": v for k, v in metrics_cls.items()})
-    all_metrics.update({f"rank_{k}": v for k, v in metrics_rank.items()})
+    threshold_result = _evaluate_thresholds(primary_metrics, cfg)
+    all_metrics["thresholds_passed"] = 1.0 if bool(threshold_result["passed"]) else 0.0
+
     emit_performance_event(
         "training.evaluation",
         duration_ms=(perf_counter() - eval_started) * 1000.0,
         metric_count=len(all_metrics),
+        primary_split="test" if test_metrics else "train",
     )
+    emit_performance_event(
+        "training.thresholds",
+        policy_version=str(threshold_result["version"]),
+        corpus=str(threshold_result["corpus"]),
+        enforced=bool(threshold_result["enforced"]),
+        passed=bool(threshold_result["passed"]),
+        violation_count=len(cast(List[str], threshold_result["violations"])),
+    )
+
+    if cfg.enforce_thresholds and not bool(threshold_result["passed"]):
+        joined = "; ".join(cast(List[str], threshold_result["violations"]))
+        raise RuntimeError(
+            "Threshold policy failed "
+            f"(version={cfg.threshold_policy_version}, corpus={cfg.corpus_name}): {joined}"
+        )
 
     settings = get_settings()
     artifacts_root = Path(settings.artifacts_root)
     artifacts_root.mkdir(parents=True, exist_ok=True)
 
-    data_manifest = {"entities": "db_table:entities"}
+    data_manifest = {
+        "entities": "db_table:entities",
+        "split": {
+            "train_size": int(train_indices.size),
+            "val_size": int(val_indices.size),
+            "test_size": int(test_indices.size),
+            "seed": cfg.seed,
+            "val_fraction": cfg.val_fraction,
+            "test_fraction": cfg.test_fraction,
+            "split_strategy": cfg.split_strategy,
+        },
+        "threshold_policy": threshold_result,
+    }
     run_id = _build_run_id(cfg, data_manifest)
     run_dir = artifacts_root / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -334,7 +808,7 @@ def reproduce_run(run_id: str) -> Dict[str, object]:
 
     # Compare predictions on a deterministic subset of entities
     _set_determinism(int(orig_cfg_dict.get("seed", 1234)))
-    id_to_idx, attr_vec_np, y_reg_np, y_bin_np, y_rank_np, _, _ = _build_entity_tensors()
+    id_to_idx, attr_vec_np, y_reg_np, y_bin_np, y_rank_np, _, _, _ = _build_entity_tensors()
     n_entities = len(id_to_idx)
     subset = min(16, n_entities)
     if subset == 0:
@@ -503,7 +977,7 @@ def run_determinism_check() -> Dict[str, object]:
     sha2 = (Path(settings.artifacts_root) / run_id2 / "model_sha256.txt").read_text().strip()
 
     # Compare predictions on a deterministic subset
-    id_to_idx, attr_vec_np, _, _, _, _, _ = _build_entity_tensors()
+    id_to_idx, attr_vec_np, _, _, _, _, _, _ = _build_entity_tensors()
     n_entities = len(id_to_idx)
     subset = min(16, n_entities)
     indices = np.arange(subset, dtype="int64")

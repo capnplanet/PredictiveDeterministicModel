@@ -1,0 +1,23 @@
+{
+  "v1": {
+    "default": {
+      "reg_r2": 0.10,
+      "cls_f1": 0.50,
+      "rank_ndcg@10": 0.30
+    },
+    "synthetic_baseline": {
+      "reg_r2": 0.70,
+      "cls_f1": 0.80,
+      "rank_ndcg@10": 0.70
+    },
+    "movielens_100k": {
+      "rank_ndcg@10": 0.50,
+      "rank_spearman": 0.45
+    },
+    "uci_adult": {
+      "cls_f1": 0.65,
+      "cls_precision": 0.60,
+      "cls_recall": 0.60
+    }
+  }
+}

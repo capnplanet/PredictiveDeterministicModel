@@ -25,6 +25,12 @@ class TrainConfigModel(BaseModel):
     batch_size: int = 32
     lr: float = 1e-3
     seed: int = 1234
+    val_fraction: float = 0.2
+    test_fraction: float = 0.2
+    split_strategy: str = "random"
+    corpus_name: str = "default"
+    threshold_policy_version: str = "v1"
+    enforce_thresholds: bool = False
 
 
 class TrainRequest(BaseModel):
