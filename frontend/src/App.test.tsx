@@ -76,7 +76,7 @@ describe('api helpers', () => {
       expect.objectContaining({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entity_ids: ['E00001'], explanations: true }),
+        body: JSON.stringify({ entity_ids: ['E00001'], explanations: true, narrative_mode: 'both' }),
       }),
     );
   });
