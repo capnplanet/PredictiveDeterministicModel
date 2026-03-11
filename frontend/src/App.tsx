@@ -6,12 +6,14 @@ import {
   triggerTrain,
   listRuns,
   predict,
+  queryPredictions,
   RunInfo,
   EntityPrediction,
+  QueryResponse,
 } from './api';
 import './App.css';
 
-type Tab = 'dataset' | 'train' | 'runs' | 'predict';
+type Tab = 'dataset' | 'train' | 'runs' | 'predict' | 'query';
 type StatusTone = 'neutral' | 'success' | 'warning' | 'error';
 
 type IconName = 'upload' | 'train' | 'ledger' | 'predict' | 'shield' | 'pulse' | 'chip';
@@ -99,6 +101,8 @@ export const App: React.FC = () => {
   const [artifactTimestamp, setArtifactTimestamp] = useState('');
   const [artifactMetadata, setArtifactMetadata] = useState('');
   const [artifactFile, setArtifactFile] = useState<File | null>(null);
+  const [queryText, setQueryText] = useState('');
+  const [queryResult, setQueryResult] = useState<QueryResponse | null>(null);
   const [status, setStatus] = useState<{ message: string; tone: StatusTone }>({
     message: 'Operational console ready.',
     tone: 'neutral',
@@ -191,11 +195,27 @@ export const App: React.FC = () => {
     }
     setStatusMessage(`Generating predictions for ${ids.length} entities...`, 'warning');
     try {
-      const res = await predict(ids);
+      const res = await predict(ids, 'both');
       setPredictions(res.predictions);
       setStatusMessage(`Prediction complete from run ${res.run_id}.`, 'success');
     } catch (error) {
       setStatusMessage(`Prediction failed. ${(error as Error).message}`, 'error');
+    }
+  };
+
+  const handleQuery = async () => {
+    const query = queryText.trim();
+    if (!query) {
+      setStatusMessage('Enter a natural language query before searching.', 'warning');
+      return;
+    }
+    setStatusMessage('Running natural language query...', 'warning');
+    try {
+      const res = await queryPredictions({ query, limit: 5 });
+      setQueryResult(res);
+      setStatusMessage(`Query complete. ${res.results.length} results returned.`, 'success');
+    } catch (error) {
+      setStatusMessage(`Query failed. ${(error as Error).message}`, 'error');
     }
   };
 
@@ -204,6 +224,7 @@ export const App: React.FC = () => {
     train: 'Model Operation',
     runs: 'Run Ledger',
     predict: 'Inference Console',
+    query: 'Natural Language Query',
   };
 
   const latestRun = useMemo(() => {
@@ -269,6 +290,10 @@ export const App: React.FC = () => {
         <button data-testid="tab-predict" className={tab === 'predict' ? 'tab active' : 'tab'} onClick={() => setTab('predict')}>
           <Icon className="tab-icon" name="predict" />
           Inference
+        </button>
+        <button data-testid="tab-query" className={tab === 'query' ? 'tab active' : 'tab'} onClick={() => setTab('query')}>
+          <Icon className="tab-icon" name="pulse" />
+          Query
         </button>
       </nav>
 
@@ -463,6 +488,46 @@ export const App: React.FC = () => {
           <PredictForm onPredict={handlePredict} predictions={predictions} />
         </section>
       )}
+      {tab === 'query' && (
+        <section className="panel fade-in">
+          <h2>Natural Language Query</h2>
+          <p className="panel-intro">Ask questions in plain language to retrieve entity predictions and long-form grounded narratives.</p>
+          <div className="predict-console">
+            <input
+              data-testid="input-query"
+              className="text-input"
+              type="text"
+              placeholder="Example: show entities with strongest relationship signals"
+              value={queryText}
+              onChange={(e) => setQueryText(e.target.value)}
+            />
+            <button data-testid="action-query" className="primary-action" onClick={handleQuery}>
+              Run Query
+            </button>
+            {queryResult && (
+              <div data-testid="query-results">
+                <p className="panel-intro">Interpretation: {queryResult.interpreted_as}</p>
+                <ul className="prediction-list">
+                  {queryResult.results.map((r) => (
+                    <li key={r.entity_id} className="prediction-item">
+                      <div className="prediction-header">
+                        <Icon className="metric-icon" name="shield" />
+                        <strong>{r.entity_id}</strong>
+                      </div>
+                      <div className="metric-chip-row">
+                        <span className="metric-chip">Reg {r.regression.toFixed(3)}</span>
+                        <span className="metric-chip">Prob {r.probability.toFixed(3)}</span>
+                        <span className="metric-chip">Rank {r.ranking_score.toFixed(3)}</span>
+                      </div>
+                      {r.narrative && <p className="narrative-text">{r.narrative}</p>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
     </div>
   );
 };
@@ -526,6 +591,7 @@ const PredictForm: React.FC<PredictFormProps> = ({ onPredict, predictions }) => 
               <span className="metric-chip">Prob {p.probability.toFixed(3)}</span>
               <span className="metric-chip">Rank {p.ranking_score.toFixed(3)}</span>
             </div>
+            {(p.narrative_long || p.narrative) && <p className="narrative-text">{p.narrative_long || p.narrative}</p>}
           </li>
         ))}
       </ul>

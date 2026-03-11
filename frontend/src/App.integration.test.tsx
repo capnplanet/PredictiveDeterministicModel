@@ -11,6 +11,7 @@ vi.mock('./api', () => ({
   triggerTrain: vi.fn(),
   listRuns: vi.fn(),
   predict: vi.fn(),
+  queryPredictions: vi.fn(),
 }));
 
 describe('App integration flow', () => {
@@ -132,7 +133,7 @@ describe('App integration flow', () => {
   it('predicts from Predict tab', async () => {
     vi.mocked(api.predict).mockResolvedValue({
       run_id: 'run_123',
-      predictions: [{ entity_id: 'E1', regression: 0.11, probability: 0.72, ranking_score: 0.4 }],
+      predictions: [{ entity_id: 'E1', regression: 0.11, probability: 0.72, ranking_score: 0.4, narrative: 'Entity E1 narrative.' }],
     });
 
     render(<App />);
@@ -142,12 +143,43 @@ describe('App integration flow', () => {
     fireEvent.click(screen.getByTestId('action-predict'));
 
     await waitFor(() => {
-      expect(api.predict).toHaveBeenCalledWith(['E1', 'E2']);
+      expect(api.predict).toHaveBeenCalledWith(['E1', 'E2'], 'both');
     });
 
     expect(screen.getByText('E1')).toBeInTheDocument();
     expect(screen.getByText('Reg 0.110')).toBeInTheDocument();
     expect(screen.getByText('Prob 0.720')).toBeInTheDocument();
     expect(screen.getByText('Rank 0.400')).toBeInTheDocument();
+    expect(screen.getByText('Entity E1 narrative.')).toBeInTheDocument();
+  });
+
+  it('runs natural language query and renders results', async () => {
+    vi.mocked(api.queryPredictions).mockResolvedValue({
+      run_id: 'run_123',
+      query: 'show strongest entities',
+      interpreted_as: 'Keyword retrieval over entity IDs and deterministic predictions.',
+      llm_used: false,
+      results: [
+        {
+          entity_id: 'E2',
+          regression: 0.2,
+          probability: 0.8,
+          ranking_score: 0.5,
+          narrative: 'Entity E2 narrative.',
+        },
+      ],
+    });
+
+    render(<App />);
+
+    fireEvent.click(screen.getByTestId('tab-query'));
+    fireEvent.change(screen.getByTestId('input-query'), { target: { value: 'show strongest entities' } });
+    fireEvent.click(screen.getByTestId('action-query'));
+
+    await waitFor(() => {
+      expect(api.queryPredictions).toHaveBeenCalledWith({ query: 'show strongest entities', limit: 5 });
+    });
+
+    expect(screen.getByText('Entity E2 narrative.')).toBeInTheDocument();
   });
 });

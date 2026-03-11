@@ -120,3 +120,20 @@ def test_ingest_train_predict_api_flow() -> None:
     assert isinstance(prediction["narrative"], str)
     assert prediction["narrative"].strip()
     assert prediction.get("explanation") is not None
+
+    query_response = client.post(
+        "/query",
+        json={
+            "query": entity_a,
+            "run_id": train_body["run_id"],
+            "limit": 3,
+        },
+    )
+    assert query_response.status_code == 200
+    query_body = query_response.json()
+    assert query_body["run_id"] == train_body["run_id"]
+    assert query_body["query"] == entity_a
+    assert isinstance(query_body["interpreted_as"], str)
+    assert isinstance(query_body["llm_used"], bool)
+    assert isinstance(query_body["results"], list)
+    assert any(item["entity_id"] == entity_a for item in query_body["results"])

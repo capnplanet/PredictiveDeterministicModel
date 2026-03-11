@@ -38,6 +38,7 @@ Primary navigation tabs:
 - Model Ops
 - Run Ledger
 - Inference
+- Query
 
 Global status banner behavior:
 - Neutral: baseline/ready state
@@ -56,6 +57,7 @@ Follow this sequence for reliable results:
 6. Go to Model Ops and execute training
 7. Go to Run Ledger and sync runs
 8. Go to Inference and execute prediction
+9. Optionally use Query for natural-language retrieval over predictions
 
 ## Tab-by-Tab Guide
 
@@ -155,6 +157,11 @@ Controls:
 Endpoint mapping:
 - POST /predict
 
+Narrative modes:
+- The backend supports `narrative_mode` values `template`, `llm`, or `both`.
+- The current UI Inference flow requests `both` and displays long-form text when available.
+- If LLM is disabled/unavailable, responses automatically fall back to deterministic template narrative text.
+
 Input rules:
 - Enter one or more entity IDs separated by commas.
 - Whitespace is trimmed automatically.
@@ -173,6 +180,23 @@ Prediction list fields per entity:
 - Reg <regression>
 - Prob <probability>
 - Rank <ranking_score>
+- Narrative (long-form plain text when LLM is available; deterministic template fallback otherwise)
+
+## 5) Query
+
+Purpose:
+- Submit natural-language retrieval prompts and receive ranked entity prediction results.
+
+Controls:
+- Query text input
+- Run Query button
+
+Endpoint mapping:
+- POST /query
+
+Output:
+- Interpreted query text
+- Result cards with entity scores and narrative text
 
 ## CSV Expectations for UI Uploads
 

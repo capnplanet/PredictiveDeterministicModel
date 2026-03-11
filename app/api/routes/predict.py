@@ -20,6 +20,7 @@ from app.core.config import get_settings
 from app.core.performance import emit_performance_event, timed_performance_event
 from app.db.models import Artifact, Event, Interaction, ModelRun
 from app.db.session import session_scope
+from app.services.llm_narrative import maybe_generate_long_narrative
 from app.training.model import EncoderConfig, FullModel
 from app.training.train import build_entity_batch_tensors
 
@@ -263,13 +264,33 @@ async def predict(request: PredictRequest) -> PredictResponse:
         prob = float(torch.sigmoid(outputs["logit"][i]).item())
         score = float(outputs["score"][i].item())
         emb_list = fused_emb[i].detach().cpu().numpy().tolist()
-        narrative = _render_prediction_narrative(
+        template_narrative = _render_prediction_narrative(
             entity_id=eid,
             rel_ctx=relationship_context.get(eid, {}),
             regression=reg,
             probability=prob,
             ranking_score=score,
         )
+        narrative_source = "template"
+        narrative_long: Optional[str] = None
+
+        if request.narrative_mode in ("llm", "both"):
+            narrative_long, llm_used, _ = await maybe_generate_long_narrative(
+                entity_id=eid,
+                template_narrative=template_narrative,
+                rel_ctx=relationship_context.get(eid, {}),
+                regression=reg,
+                probability=prob,
+                ranking_score=score,
+            )
+            narrative_source = "llm" if llm_used else "template"
+
+        if request.narrative_mode == "template":
+            narrative = template_narrative
+        elif request.narrative_mode == "llm":
+            narrative = narrative_long or template_narrative
+        else:
+            narrative = narrative_long or template_narrative
 
         explanation = None
         if request.explanations:
@@ -300,6 +321,9 @@ async def predict(request: PredictRequest) -> PredictResponse:
                 ranking_score=score,
                 embedding=emb_list,
                 narrative=narrative,
+                narrative_template=template_narrative,
+                narrative_long=narrative_long,
+                narrative_source=narrative_source,
                 explanation=explanation,
             )
         )
@@ -311,6 +335,7 @@ async def predict(request: PredictRequest) -> PredictResponse:
         run_id=run_id,
         batch_size=len(entity_ids),
         explanations=request.explanations,
+        narrative_mode=request.narrative_mode,
         explanation_duration_ms=round(explanation_ms, 3),
         entities_with_events=coverage.get("entities_with_events", 0),
         entities_with_neighbors=coverage.get("entities_with_neighbors", 0),

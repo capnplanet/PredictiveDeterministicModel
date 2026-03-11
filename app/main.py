@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import features, health, ingest, predict, train
+from app.api.routes import features, health, ingest, predict, query, train
 from app.core.performance import emit_performance_event
 
 app = FastAPI(title="Deterministic Multimodal Analytics")
@@ -48,3 +48,4 @@ app.include_router(ingest.router)
 app.include_router(features.router)
 app.include_router(train.router)
 app.include_router(predict.router)
+app.include_router(query.router)

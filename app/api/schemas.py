@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -57,6 +57,10 @@ class PredictRequest(BaseModel):
     entity_ids: List[str] = Field(..., description="Entity IDs to predict for")
     run_id: Optional[str] = Field(None, description="Specific run to use; latest if omitted")
     explanations: bool = Field(True, description="Whether to compute explanations")
+    narrative_mode: Literal["template", "llm", "both"] = Field(
+        "template",
+        description="Narrative output mode. template keeps deterministic text; llm requests long-form narrative; both includes both.",
+    )
 
 
 class AttentionExplanation(BaseModel):
@@ -81,9 +85,34 @@ class EntityPrediction(BaseModel):
     ranking_score: float
     embedding: List[float]
     narrative: Optional[str] = None
+    narrative_template: Optional[str] = None
+    narrative_long: Optional[str] = None
+    narrative_source: Optional[str] = None
     explanation: Optional[EntityExplanation] = None
 
 
 class PredictResponse(BaseModel):
     run_id: str
     predictions: List[EntityPrediction]
+
+
+class QueryRequest(BaseModel):
+    query: str = Field(..., min_length=3, description="Natural language query")
+    run_id: Optional[str] = Field(None, description="Specific run to use; latest if omitted")
+    limit: int = Field(5, ge=1, le=25)
+
+
+class QueryResult(BaseModel):
+    entity_id: str
+    regression: float
+    probability: float
+    ranking_score: float
+    narrative: Optional[str] = None
+
+
+class QueryResponse(BaseModel):
+    run_id: str
+    query: str
+    interpreted_as: str
+    llm_used: bool
+    results: List[QueryResult]

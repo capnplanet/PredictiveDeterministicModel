@@ -48,8 +48,27 @@ open http://localhost:5173
 - ✅ **Multi-Task Learning** - Regression, Classification, and Ranking in one model
 - ✅ **Multimodal Support** - Images, Audio, Video, and Tabular data
 - ✅ **Built-in Explainability** - Understand what drives every prediction
+- ✅ **LLM Narrative Augmentation (Optional)** - Generate plain-text long-form narratives from deterministic outputs
+- ✅ **Natural-Language Query Endpoint** - Ask retrieval-style questions over entity predictions via `/query`
 - ✅ **Enterprise Ready** - Docker Compose, REST APIs, complete audit trails
 - ✅ **Compliance Focused** - Designed for GDPR, HIPAA, and regulated industries
+
+## 🤖 Optional LLM Settings
+
+Set these environment variables to enable Hugging Face endpoint-based narrative/query augmentation:
+
+```bash
+LLM_ENABLED=true
+LLM_PROVIDER=huggingface
+LLM_ENDPOINT_URL=<your_hf_inference_endpoint>
+LLM_API_TOKEN=<your_hf_token>
+LLM_MODEL_ID=meta-llama/Llama-3.1-8B-Instruct
+LLM_TIMEOUT_SECONDS=5
+LLM_MAX_TOKENS=500
+LLM_TEMPERATURE=0.2
+```
+
+If disabled or unavailable, the platform automatically falls back to deterministic template narratives.
 
 ## 📈 Performance Metrics
 

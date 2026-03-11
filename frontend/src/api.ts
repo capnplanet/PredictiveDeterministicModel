@@ -80,6 +80,10 @@ export interface EntityPrediction {
   regression: number;
   probability: number;
   ranking_score: number;
+  narrative?: string;
+  narrative_template?: string;
+  narrative_long?: string;
+  narrative_source?: string;
 }
 
 export interface PredictResponse {
@@ -87,14 +91,48 @@ export interface PredictResponse {
   predictions: EntityPrediction[];
 }
 
-export async function predict(entityIds: string[]): Promise<PredictResponse> {
+export interface QueryRequest {
+  query: string;
+  run_id?: string;
+  limit?: number;
+}
+
+export interface QueryResult {
+  entity_id: string;
+  regression: number;
+  probability: number;
+  ranking_score: number;
+  narrative?: string;
+}
+
+export interface QueryResponse {
+  run_id: string;
+  query: string;
+  interpreted_as: string;
+  llm_used: boolean;
+  results: QueryResult[];
+}
+
+export async function predict(entityIds: string[], narrativeMode: 'template' | 'llm' | 'both' = 'both'): Promise<PredictResponse> {
   const res = await fetch('/predict', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ entity_ids: entityIds, explanations: true }),
+    body: JSON.stringify({ entity_ids: entityIds, explanations: true, narrative_mode: narrativeMode }),
   });
   if (!res.ok) {
     throw new Error(`Predict failed: ${res.status}`);
   }
   return (await res.json()) as PredictResponse;
+}
+
+export async function queryPredictions(payload: QueryRequest): Promise<QueryResponse> {
+  const res = await fetch('/query', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Query failed: ${res.status}`);
+  }
+  return (await res.json()) as QueryResponse;
 }

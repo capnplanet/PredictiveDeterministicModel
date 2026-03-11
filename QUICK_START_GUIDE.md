@@ -141,7 +141,16 @@ curl -X POST http://localhost:8000/predict \
   -H "Content-Type: application/json" \
   -d '{
     "entity_ids": ["ent_001", "ent_002"],
-    "explanations": true
+    "explanations": true,
+    "narrative_mode": "both"
+  }'
+
+# Natural-language query over predictions
+curl -X POST http://localhost:8000/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "show entities with strongest relationship signals",
+    "limit": 5
   }'
 ```
 
