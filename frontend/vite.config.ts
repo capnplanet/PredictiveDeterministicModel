@@ -21,6 +21,7 @@ export default defineConfig({
       '/train': proxyTarget,
       '/runs': proxyTarget,
       '/predict': proxyTarget,
+      '/query': proxyTarget,
     },
   }
 });

@@ -28,15 +28,17 @@ router = APIRouter(prefix="", tags=["predict"])
 
 
 def _load_latest_run_id(session) -> str:
-    run = (
-        session.query(ModelRun)
-        .order_by(ModelRun.created_at.desc())
-        .limit(1)
-        .one_or_none()
-    )
-    if run is None:
-        raise RuntimeError("No model runs available")
-    return run.run_id
+    from pathlib import Path
+
+    settings = get_settings()
+    run_dir = Path(settings.artifacts_root)
+    runs = session.query(ModelRun).order_by(ModelRun.created_at.desc()).all()
+    for run in runs:
+        if (run_dir / run.run_id / "model.pt").exists():
+            return run.run_id
+    if runs:
+        raise RuntimeError("No model artifacts available for any run")
+    raise RuntimeError("No model runs available")
 
 
 def _load_model(run_id: str) -> Tuple[FullModel, Dict[str, float]]:

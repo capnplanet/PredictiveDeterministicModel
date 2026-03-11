@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
 from app.api.routes.predict import predict as predict_entities
@@ -45,14 +45,23 @@ async def query_predictions(request: QueryRequest) -> QueryResponse:
             results=[],
         )
 
-    pred = await predict_entities(
-        PredictRequest(
-            entity_ids=entity_ids,
-            run_id=request.run_id,
-            explanations=False,
-            narrative_mode="llm",
+    try:
+        pred = await predict_entities(
+            PredictRequest(
+                entity_ids=entity_ids,
+                run_id=request.run_id,
+                explanations=False,
+                narrative_mode="llm",
+            )
         )
-    )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No trained model artifact is available for querying yet. "
+                "Run a training operation first from Model Ops."
+            ),
+        ) from exc
 
     results = [
         QueryResult(

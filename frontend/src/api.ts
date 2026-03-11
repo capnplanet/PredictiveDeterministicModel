@@ -132,7 +132,16 @@ export async function queryPredictions(payload: QueryRequest): Promise<QueryResp
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
-    throw new Error(`Query failed: ${res.status}`);
+    let detail = '';
+    try {
+      const body = await res.json();
+      if (body && typeof body.detail === 'string') {
+        detail = ` ${body.detail}`;
+      }
+    } catch {
+      detail = '';
+    }
+    throw new Error(`Query failed: ${res.status}.${detail}`.trim());
   }
   return (await res.json()) as QueryResponse;
 }
