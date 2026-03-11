@@ -6,6 +6,8 @@ import * as api from './api';
 
 vi.mock('./api', () => ({
   uploadCsv: vi.fn(),
+  uploadArtifactsManifest: vi.fn(),
+  uploadSingleArtifact: vi.fn(),
   triggerTrain: vi.fn(),
   listRuns: vi.fn(),
   predict: vi.fn(),
@@ -57,6 +59,57 @@ describe('App integration flow', () => {
     });
 
     expect(screen.getByTestId('status-banner').textContent).toContain('Training complete. Run ID: run_123');
+  });
+
+  it('uploads artifact manifest CSV from Dataset tab', async () => {
+    vi.mocked(api.uploadArtifactsManifest).mockResolvedValue({
+      total_rows: 2,
+      success_rows: 2,
+      failed_rows: 0,
+      errors: [],
+    });
+
+    render(<App />);
+
+    const manifestInput = screen.getByTestId('upload-artifacts-manifest') as HTMLInputElement;
+    const file = new File(['sha256,artifact_type\nabc,image'], 'artifacts_manifest.csv', { type: 'text/csv' });
+    fireEvent.change(manifestInput, { target: { files: [file] } });
+
+    await waitFor(() => {
+      expect(api.uploadArtifactsManifest).toHaveBeenCalledWith(file);
+    });
+
+    expect(screen.getByTestId('status-banner').textContent).toContain('Artifact manifest upload complete (2/2 rows).');
+  });
+
+  it('uploads single artifact from Dataset tab', async () => {
+    vi.mocked(api.uploadSingleArtifact).mockResolvedValue({
+      artifact_id: '1',
+      sha256: 'abcdef1234567890',
+      artifact_type: 'image',
+    });
+
+    render(<App />);
+
+    const artifactFile = new File(['fake-image-content'], 'sample.png', { type: 'image/png' });
+    fireEvent.change(screen.getByTestId('upload-single-artifact-file'), { target: { files: [artifactFile] } });
+    fireEvent.change(screen.getByTestId('input-artifact-type'), { target: { value: 'image' } });
+    fireEvent.change(screen.getByTestId('input-artifact-entity-id'), { target: { value: 'E1' } });
+    fireEvent.change(screen.getByTestId('input-artifact-timestamp'), { target: { value: '2026-03-11T12:00:00' } });
+    fireEvent.change(screen.getByTestId('input-artifact-metadata'), { target: { value: '{"source":"ui"}' } });
+    fireEvent.click(screen.getByTestId('action-upload-single-artifact'));
+
+    await waitFor(() => {
+      expect(api.uploadSingleArtifact).toHaveBeenCalledWith({
+        file: artifactFile,
+        artifactType: 'image',
+        entityId: 'E1',
+        timestamp: '2026-03-11T12:00:00',
+        metadata: '{"source":"ui"}',
+      });
+    });
+
+    expect(screen.getByTestId('status-banner').textContent).toContain('Single artifact upload complete: abcdef123456...');
   });
 
   it('loads run history from Runs tab', async () => {

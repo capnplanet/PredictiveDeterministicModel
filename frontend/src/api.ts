@@ -5,6 +5,20 @@ export interface IngestionReport {
   errors: string[];
 }
 
+export interface ArtifactUploadResponse {
+  artifact_id: string;
+  sha256: string;
+  artifact_type: string;
+}
+
+export interface SingleArtifactUploadRequest {
+  file: File;
+  artifactType: string;
+  entityId?: string;
+  timestamp?: string;
+  metadata?: string;
+}
+
 export async function uploadCsv(path: string, file: File): Promise<IngestionReport> {
   const form = new FormData();
   form.append('file', file);
@@ -13,6 +27,25 @@ export async function uploadCsv(path: string, file: File): Promise<IngestionRepo
     throw new Error(`Upload failed: ${res.status}`);
   }
   return (await res.json()) as IngestionReport;
+}
+
+export async function uploadArtifactsManifest(file: File): Promise<IngestionReport> {
+  return uploadCsv('/ingest/artifacts', file);
+}
+
+export async function uploadSingleArtifact(payload: SingleArtifactUploadRequest): Promise<ArtifactUploadResponse> {
+  const form = new FormData();
+  form.append('file', payload.file);
+  form.append('artifact_type', payload.artifactType);
+  if (payload.entityId) form.append('entity_id', payload.entityId);
+  if (payload.timestamp) form.append('timestamp', payload.timestamp);
+  if (payload.metadata) form.append('metadata', payload.metadata);
+
+  const res = await fetch('/ingest/artifact', { method: 'POST', body: form });
+  if (!res.ok) {
+    throw new Error(`Artifact upload failed: ${res.status}`);
+  }
+  return (await res.json()) as ArtifactUploadResponse;
 }
 
 export interface TrainResponse {

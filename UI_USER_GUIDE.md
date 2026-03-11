@@ -51,21 +51,30 @@ Follow this sequence for reliable results:
 1. Upload Entities CSV in Data Intake
 2. Upload Events CSV in Data Intake
 3. Upload Interactions CSV in Data Intake
-4. Go to Model Ops and execute training
-5. Go to Run Ledger and sync runs
-6. Go to Inference and execute prediction
+4. Upload Artifacts Manifest CSV (if using batch artifact ingest)
+5. Upload Single Artifact files as needed (image/audio/video)
+6. Go to Model Ops and execute training
+7. Go to Run Ledger and sync runs
+8. Go to Inference and execute prediction
 
 ## Tab-by-Tab Guide
 
 ## 1) Data Intake
 
 Purpose:
-- Load the three CSV datasets used by training and prediction.
+- Load structured CSV datasets plus artifact files and artifact manifests.
 
 Controls:
 - Entities Manifest file input
 - Events Stream file input
 - Interactions Graph file input
+- Artifacts Manifest file input
+- Single Artifact form:
+  - Artifact file
+  - Artifact type
+  - Optional entity id
+  - Optional timestamp
+  - Optional metadata JSON
 
 What happens on upload:
 - Each input immediately calls a backend ingest endpoint when a file is selected.
@@ -75,6 +84,8 @@ Endpoint mapping:
 - Entities Manifest -> POST /ingest/entities
 - Events Stream -> POST /ingest/events
 - Interactions Graph -> POST /ingest/interactions
+- Artifacts Manifest -> POST /ingest/artifacts
+- Single Artifact form -> POST /ingest/artifact
 
 Success message pattern:
 - Upload complete: <kind> (<success_rows>/<total_rows> rows).
@@ -82,9 +93,10 @@ Success message pattern:
 Example:
 - Upload complete: entities (250/250 rows).
 
-Important notes:
-- The current UI does not include artifact upload controls.
-- Artifact endpoints exist in backend API, but they are not exposed in this UI flow.
+Single artifact notes:
+- Artifact type currently offers image, audio, and video values.
+- Metadata field expects valid JSON when provided.
+- Entity ID and timestamp are optional passthrough fields.
 
 ## 2) Model Ops
 
@@ -186,6 +198,17 @@ Interactions CSV (commonly used columns):
 - interaction_value
 - metadata (optional)
 
+Artifacts manifest CSV:
+- Upload through Artifacts Manifest in Data Intake.
+- Uses backend manifest ingestion endpoint at POST /ingest/artifacts.
+- Column requirements should match backend artifact manifest schema used by your pipeline.
+
+Single artifact upload:
+- Upload through Single Artifact form in Data Intake.
+- Supported picker filter: image/audio/video files.
+- Required: file and artifact type.
+- Optional: entity_id, timestamp, metadata JSON.
+
 Practical tip:
 - Start from the synthetic data generator output for known-good format.
 
@@ -252,6 +275,8 @@ Action:
   - Entities Manifest -> POST /ingest/entities
   - Events Stream -> POST /ingest/events
   - Interactions Graph -> POST /ingest/interactions
+  - Artifacts Manifest -> POST /ingest/artifacts
+  - Single Artifact -> POST /ingest/artifact
 - Model Ops
   - Execute Training Operation -> POST /train
 - Run Ledger
@@ -262,22 +287,23 @@ Action:
 ## Known Scope of Current UI
 
 Included in UI:
-- CSV ingestion for entities, events, interactions
+- CSV ingestion for entities, events, interactions, and artifacts manifest
+- Single artifact upload with metadata fields
 - Train trigger
 - Run history and core metrics chips/cards
 - Entity prediction and output metrics
 
 Not currently included in UI:
-- Artifact manifest upload and single artifact upload forms
 - Advanced training config editing from the frontend
 - Run detail drill-down view (/runs/{run_id})
 
 ## Quick Demo Script (UI-Oriented)
 
-1. Open Data Intake and upload three CSV files.
-2. Move to Model Ops and click Execute Training Operation.
-3. Move to Run Ledger and click Sync Run Ledger.
-4. Move to Inference, enter 1-3 known entity IDs, and click Execute Inference.
-5. Narrate result chips: Reg, Prob, Rank for each entity.
+1. Open Data Intake and upload entities, events, and interactions CSV files.
+2. Upload artifacts manifest CSV or use Single Artifact form for direct artifact files.
+3. Move to Model Ops and click Execute Training Operation.
+4. Move to Run Ledger and click Sync Run Ledger.
+5. Move to Inference, enter 1-3 known entity IDs, and click Execute Inference.
+6. Narrate result chips: Reg, Prob, Rank for each entity.
 
 This sequence is aligned with current tab names and control labels in the live UI.

@@ -196,10 +196,23 @@ body {
   max-width: 740px;
 }
 
+.dataset-subtitle {
+  margin: 1rem 0 0.55rem;
+  font-family: var(--font-display);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  font-size: 0.88rem;
+  color: var(--accent-cyan);
+}
+
 .upload-grid {
   display: grid;
   gap: var(--space-3);
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.upload-grid-artifact {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
 }
 
 .upload-card {
@@ -230,6 +243,32 @@ body {
 .upload-help {
   color: var(--text-muted);
   font-size: 0.88rem;
+}
+
+.artifact-form-card {
+  align-content: start;
+}
+
+.artifact-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.field-group {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.84rem;
+  color: var(--text-muted);
+}
+
+.field-group span {
+  color: var(--text-main);
+}
+
+.artifact-textarea {
+  min-height: 88px;
+  resize: vertical;
 }
 
 .primary-action,
@@ -387,7 +426,8 @@ body {
 .primary-action:focus-visible,
 .secondary-action:focus-visible,
 .tab:focus-visible,
-.upload-card input:focus-visible {
+.upload-card input:focus-visible,
+.artifact-textarea:focus-visible {
   outline: 2px solid var(--accent-cyan);
   outline-offset: 2px;
 }
@@ -413,6 +453,10 @@ body {
   }
 
   .upload-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .artifact-form-grid {
     grid-template-columns: 1fr;
   }
 

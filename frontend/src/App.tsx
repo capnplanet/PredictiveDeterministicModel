@@ -1,5 +1,14 @@
 import React, { useMemo, useState } from 'react';
-import { uploadCsv, triggerTrain, listRuns, predict, RunInfo, EntityPrediction } from './api';
+import {
+  uploadCsv,
+  uploadArtifactsManifest,
+  uploadSingleArtifact,
+  triggerTrain,
+  listRuns,
+  predict,
+  RunInfo,
+  EntityPrediction,
+} from './api';
 import './App.css';
 
 type Tab = 'dataset' | 'train' | 'runs' | 'predict';
@@ -85,6 +94,11 @@ export const App: React.FC = () => {
   const [tab, setTab] = useState<Tab>('dataset');
   const [runs, setRuns] = useState<RunInfo[]>([]);
   const [predictions, setPredictions] = useState<EntityPrediction[]>([]);
+  const [artifactType, setArtifactType] = useState('image');
+  const [artifactEntityId, setArtifactEntityId] = useState('');
+  const [artifactTimestamp, setArtifactTimestamp] = useState('');
+  const [artifactMetadata, setArtifactMetadata] = useState('');
+  const [artifactFile, setArtifactFile] = useState<File | null>(null);
   const [status, setStatus] = useState<{ message: string; tone: StatusTone }>({
     message: 'Operational console ready.',
     tone: 'neutral',
@@ -113,6 +127,48 @@ export const App: React.FC = () => {
       setStatusMessage(`Training complete. Run ID: ${res.run_id}`, 'success');
     } catch (error) {
       setStatusMessage(`Training failed. ${(error as Error).message}`, 'error');
+    }
+  };
+
+  const handleArtifactsManifestUpload = async (file: File | null) => {
+    if (!file) return;
+    setStatusMessage('Uploading artifacts manifest...', 'warning');
+    try {
+      const res = await uploadArtifactsManifest(file);
+      setStatusMessage(`Artifact manifest upload complete (${res.success_rows}/${res.total_rows} rows).`, 'success');
+    } catch (error) {
+      setStatusMessage(`Artifact manifest upload failed. ${(error as Error).message}`, 'error');
+    }
+  };
+
+  const handleSingleArtifactUpload = async () => {
+    if (!artifactFile) {
+      setStatusMessage('Select an artifact file before upload.', 'warning');
+      return;
+    }
+
+    const metadata = artifactMetadata.trim();
+    if (metadata) {
+      try {
+        JSON.parse(metadata);
+      } catch {
+        setStatusMessage('Artifact metadata must be valid JSON.', 'warning');
+        return;
+      }
+    }
+
+    setStatusMessage('Uploading single artifact...', 'warning');
+    try {
+      const res = await uploadSingleArtifact({
+        file: artifactFile,
+        artifactType,
+        entityId: artifactEntityId.trim() || undefined,
+        timestamp: artifactTimestamp.trim() || undefined,
+        metadata: metadata || undefined,
+      });
+      setStatusMessage(`Single artifact upload complete: ${res.sha256.slice(0, 12)}...`, 'success');
+    } catch (error) {
+      setStatusMessage(`Single artifact upload failed. ${(error as Error).message}`, 'error');
     }
   };
 
@@ -224,7 +280,8 @@ export const App: React.FC = () => {
       {tab === 'dataset' && (
         <section className="panel fade-in">
           <h2>Data Intake Zone</h2>
-          <p className="panel-intro">Load mission datasets in staged order to maintain deterministic run provenance.</p>
+          <p className="panel-intro">Load mission datasets and artifacts in staged order to maintain deterministic run provenance.</p>
+          <h3 className="dataset-subtitle">Structured Data</h3>
           <div className="upload-grid">
             <label className="upload-card" htmlFor="entities-csv">
               <span className="upload-title">Entities Manifest</span>
@@ -259,6 +316,94 @@ export const App: React.FC = () => {
                 onChange={(e) => handleUpload('interactions', e.target.files?.[0] ?? null)}
               />
             </label>
+          </div>
+
+          <h3 className="dataset-subtitle">Artifact Ingestion</h3>
+          <div className="upload-grid upload-grid-artifact">
+            <label className="upload-card" htmlFor="artifacts-manifest-csv">
+              <span className="upload-title">Artifacts Manifest</span>
+              <span className="upload-help">Bulk artifact records and file references</span>
+              <input
+                id="artifacts-manifest-csv"
+                data-testid="upload-artifacts-manifest"
+                type="file"
+                accept=".csv"
+                onChange={(e) => handleArtifactsManifestUpload(e.target.files?.[0] ?? null)}
+              />
+            </label>
+
+            <div className="upload-card artifact-form-card" data-testid="single-artifact-form">
+              <span className="upload-title">Single Artifact</span>
+              <span className="upload-help">Upload one image/audio/video file with optional metadata</span>
+              <div className="artifact-form-grid">
+                <label className="field-group" htmlFor="artifact-file">
+                  <span>Artifact File</span>
+                  <input
+                    id="artifact-file"
+                    data-testid="upload-single-artifact-file"
+                    type="file"
+                    accept="image/*,audio/*,video/*"
+                    onChange={(e) => setArtifactFile(e.target.files?.[0] ?? null)}
+                  />
+                </label>
+
+                <label className="field-group" htmlFor="artifact-type">
+                  <span>Artifact Type</span>
+                  <select
+                    id="artifact-type"
+                    data-testid="input-artifact-type"
+                    className="text-input"
+                    value={artifactType}
+                    onChange={(e) => setArtifactType(e.target.value)}
+                  >
+                    <option value="image">image</option>
+                    <option value="audio">audio</option>
+                    <option value="video">video</option>
+                  </select>
+                </label>
+
+                <label className="field-group" htmlFor="artifact-entity-id">
+                  <span>Entity ID (optional)</span>
+                  <input
+                    id="artifact-entity-id"
+                    data-testid="input-artifact-entity-id"
+                    className="text-input"
+                    type="text"
+                    placeholder="ent_000"
+                    value={artifactEntityId}
+                    onChange={(e) => setArtifactEntityId(e.target.value)}
+                  />
+                </label>
+
+                <label className="field-group" htmlFor="artifact-timestamp">
+                  <span>Timestamp (optional)</span>
+                  <input
+                    id="artifact-timestamp"
+                    data-testid="input-artifact-timestamp"
+                    className="text-input"
+                    type="text"
+                    placeholder="2026-03-11T12:00:00"
+                    value={artifactTimestamp}
+                    onChange={(e) => setArtifactTimestamp(e.target.value)}
+                  />
+                </label>
+
+                <label className="field-group" htmlFor="artifact-metadata">
+                  <span>Metadata JSON (optional)</span>
+                  <textarea
+                    id="artifact-metadata"
+                    data-testid="input-artifact-metadata"
+                    className="text-input artifact-textarea"
+                    placeholder='{"source":"ui"}'
+                    value={artifactMetadata}
+                    onChange={(e) => setArtifactMetadata(e.target.value)}
+                  />
+                </label>
+              </div>
+              <button data-testid="action-upload-single-artifact" className="secondary-action" onClick={handleSingleArtifactUpload}>
+                Upload Single Artifact
+              </button>
+            </div>
           </div>
         </section>
       )}
