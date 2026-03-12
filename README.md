@@ -6,9 +6,13 @@ This repository implements a deterministic, domain-agnostic analytics stack with
 
 For comprehensive information about this repository and how to use it in enterprise environments:
 
+- **[Documentation Index](DOCUMENTATION_INDEX.md)** - Central map of all guides and reference docs
+
 - **[UI User Guide](UI_USER_GUIDE.md)** - Detailed walkthrough of the current Defense-Grade Decision Console UI, including tab-by-tab workflows, status messaging, CSV expectations, troubleshooting, and UI-to-API mapping
 
 - **[Quick Start Guide](QUICK_START_GUIDE.md)** - Get up and running in 5 minutes with curl examples, CSV formats, and troubleshooting
+
+- **[Corpus Validation Guide](CORPUS_VALIDATION_GUIDE.md)** - Reproducible validation playbooks for synthetic and public corpora, determinism checks, and acceptance thresholds
 
 - **[Comprehensive Repository Guide](COMPREHENSIVE_REPOSITORY_GUIDE.md)** - Complete 46KB guide with:
   - Feynman-style explanations of core concepts (entities, events, artifacts, determinism)
@@ -25,19 +29,21 @@ For comprehensive information about this repository and how to use it in enterpr
   - Enterprise integration patterns
   - Determinism guarantees and explainability methods
 
+- **[Telemetry Snapshot](TEST_TELEMETRY_2026-02-23.md)** - Historical CI run telemetry and performance summary example
+
 ## 🚀 Quick Start
 
 ```bash
 # Clone and start
 git clone https://github.com/capnplanet/PredictiveDeterministicModel.git
 cd PredictiveDeterministicModel
-docker-compose up -d
+docker compose up -d
 
 # Verify
 curl http://localhost:8000/health
 
-# Open UI
-open http://localhost:5173
+# Open UI (Linux)
+xdg-open http://localhost:5173
 ```
 
 ## ✨ Key Features
@@ -49,7 +55,9 @@ open http://localhost:5173
 - ✅ **Multimodal Support** - Images, Audio, Video, and Tabular data
 - ✅ **Built-in Explainability** - Understand what drives every prediction
 - ✅ **LLM Narrative Augmentation (Optional)** - Generate plain-text long-form narratives from deterministic outputs
-- ✅ **Natural-Language Query Endpoint** - Ask retrieval-style questions over entity predictions via `/query`
+- ✅ **Natural-Language Query Endpoint** - Ask retrieval-style questions over entity predictions via `/query` with intent tags (match/order/probability)
+- ✅ **Query Prompt Presets in UI** - Pre-populated prompts for strongest relationships, risk investigation, prioritization, and anomaly storyline
+- ✅ **Query Ranking Controls** - Relationship-driven sorting with elevated-probability intent support
 - ✅ **Enterprise Ready** - Docker Compose, REST APIs, complete audit trails
 - ✅ **Compliance Focused** - Designed for GDPR, HIPAA, and regulated industries
 
@@ -60,15 +68,26 @@ Set these environment variables to enable Hugging Face endpoint-based narrative/
 ```bash
 LLM_ENABLED=true
 LLM_PROVIDER=huggingface
-LLM_ENDPOINT_URL=<your_hf_inference_endpoint>
-LLM_API_TOKEN=<your_hf_token>
+HF_ENDPOINT_URL=<your_hf_inference_endpoint>
+HF_TOKEN=<your_hf_token>
 LLM_MODEL_ID=meta-llama/Llama-3.1-8B-Instruct
 LLM_TIMEOUT_SECONDS=5
 LLM_MAX_TOKENS=500
 LLM_TEMPERATURE=0.2
 ```
 
+`LLM_ENDPOINT_URL` / `LLM_API_TOKEN` aliases are also supported.
+
 If disabled or unavailable, the platform automatically falls back to deterministic template narratives.
+
+## 🔁 CI Workflows
+
+Main branch changes are validated by:
+
+- `Backend CI` (lint, type checks, backend tests)
+- `Determinism Matrix CI` (cross-Python reproducibility gate)
+- `E2E CI` (full-stack UI/API behavior)
+- `Frontend CI` (frontend tests and quality checks)
 
 ## 📈 Performance Metrics
 
@@ -81,3 +100,9 @@ PYTHONPATH=. python -m app.cli performance-report
 ```
 
 CI uploads these as artifacts in backend and determinism-matrix workflows (report-only mode).
+
+## 🧠 Query Behavior Notes
+
+- Stable entity ordering across repeated queries is expected when run ID and data are unchanged (deterministic ranking outputs).
+- Narrative wording can vary slightly between requests when LLM is enabled (`LLM_TEMPERATURE > 0`).
+- Query responses include interpretation metadata in `interpreted_as`, including retrieval strategy and ordering intent.

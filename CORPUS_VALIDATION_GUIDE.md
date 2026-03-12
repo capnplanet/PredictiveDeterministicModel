@@ -2,6 +2,16 @@
 
 This guide provides reproducible corpus-based validation for predictive analytics quality and determinism.
 
+## Current Coverage
+
+This validation guide aligns with the current repository capabilities:
+
+- Deterministic model training and inference
+- Query endpoint validation (`/query`) with intent-aware ordering
+- Optional LLM augmentation checks for interpretation and narratives
+- CI validation via Backend CI, Determinism Matrix CI, and E2E CI
+- Telemetry aggregation using `performance-report`
+
 ## Goals
 
 - Validate predictive quality across regression, classification, and ranking outputs.
@@ -33,6 +43,8 @@ Recommended acceptance targets for synthetic baseline:
 - `reg_r2 >= 0.80`
 - `cls_f1 >= 0.85`
 - `rank_ndcg@10 >= 0.80`
+
+Note: Exact values can vary by corpus profile size and target construction. Keep thresholds versioned with corpus metadata and revisit thresholds after data schema changes.
 
 ## Determinism Check (Synthetic)
 
@@ -104,6 +116,34 @@ Recommended acceptance targets:
 - Keep synthetic determinism checks as required PR gates.
 - Run public corpus validations on a nightly schedule to avoid long PR feedback loops.
 - Store threshold expectations in versioned config reviewed in pull requests.
+- Ensure `Backend CI`, `Determinism Matrix CI`, and `E2E CI` all pass before promoting corpus or threshold updates.
+
+## Query Validation (Recommended)
+
+After training on a corpus, validate query behavior with intent-rich prompts:
+
+```bash
+curl -sS -X POST http://localhost:8000/query \
+	-H "Content-Type: application/json" \
+	-d '{"query":"Identify top entities by relationship strength with elevated probability and explain confidence limits.","limit":5}'
+```
+
+Check for:
+
+- `interpreted_as` includes intent tags (match/order/probability)
+- `llm_used` reflects actual LLM availability
+- Stable ranking order for repeated calls against the same run/data
+- Narrative text remains grounded in model outputs and ingested evidence
+
+## Telemetry Validation
+
+Generate and archive a performance summary after corpus validation:
+
+```bash
+PYTHONPATH=. python -m app.cli performance-report
+```
+
+Review report fields for p50/p95 latency, event counts, and error rates before signing off.
 
 ## Troubleshooting
 

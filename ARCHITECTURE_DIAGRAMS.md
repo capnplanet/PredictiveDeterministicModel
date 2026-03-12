@@ -11,10 +11,10 @@ This document provides visual representations of the system architecture, data f
 │  ┌────────────────────────────────────────────────────────────┐   │
 │  │                 React Frontend (Port 5173)                  │   │
 │  │                                                              │   │
-│  │  ┌──────────┬──────────┬──────────┬──────────┐            │   │
-│  │  │ Dataset  │  Train   │   Runs   │ Predict  │            │   │
-│  │  │  Upload  │ Trigger  │  History │  + Explain│            │   │
-│  │  └──────────┴──────────┴──────────┴──────────┘            │   │
+│  │  ┌──────────┬──────────┬──────────┬──────────┬──────────┐ │   │
+│  │  │ Dataset  │  Train   │   Runs   │ Predict  │  Query   │ │   │
+│  │  │  Upload  │ Trigger  │  History │  + Explain│ NL Rank │ │   │
+│  │  └──────────┴──────────┴──────────┴──────────┴──────────┘ │   │
 │  └────────────────────┬─────────────────────────────────────────┘   │
 └───────────────────────┼──────────────────────────────────────────────┘
                         │
@@ -34,6 +34,8 @@ This document provides visual representations of the system architecture, data f
 │  │  │  • /train          - Model training                 │  │   │
 │  │  │  • /runs/*         - Training run management        │  │   │
 │  │  │  • /predict        - Inference + Explainability     │  │   │
+│  │  │  • /query          - Query + ranked retrieval       │  │   │
+│  │  │  • /demo/preload   - One-click synthetic bootstrap  │  │   │
 │  │  └─────────────────────────────────────────────────────┘  │   │
 │  └────────────────────┬─────────────────────────────────────────┘   │
 └───────────────────────┼──────────────────────────────────────────────┘
@@ -319,6 +321,81 @@ This document provides visual representations of the system architecture, data f
                    │ JSON Response   │  Return predictions + explanations
                    └─────────────────┘
 ```
+
+---
+
+## Natural-Language Query and Narrative Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                       PHASE 5: QUERY RETRIEVAL                      │
+└─────────────────────────────────────────────────────────────────────┘
+
+   Analyst Prompt
+   (UI preset or free text)
+          │
+          ▼
+   ┌──────────────────┐
+   │ POST /query      │
+   └──────┬───────────┘
+          │
+          ▼
+   ┌──────────────────────────────────────────────────────────────┐
+   │ Intent Inference                                             │
+   │ • match strategy: explicit | fuzzy | broad_scan             │
+   │ • order intent: strongest | weakest | default               │
+   │ • probability intent: elevated | default                    │
+   └──────┬───────────────────────────────────────────────────────┘
+          │
+          ▼
+   ┌──────────────────────────────────────────────────────────────┐
+   │ Candidate Scoring (deterministic)                           │
+   │ • Uses /predict in template mode for candidate batch        │
+   │ • Sorts by ranking_score / probability intent               │
+   │ • Truncates to requested top-k                              │
+   └──────┬───────────────────────────────────────────────────────┘
+          │
+          ▼
+   ┌──────────────────────────────────────────────────────────────┐
+   │ Narrative Enrichment (optional LLM)                         │
+   │ • Long-form narrative only for final top-k                  │
+   │ • Facts/scores constrained to deterministic outputs         │
+   │ • Confidence limits requested in prompt                     │
+   └──────┬───────────────────────────────────────────────────────┘
+          │
+          ▼
+   ┌──────────────────────────────────────────────────────────────┐
+   │ QueryResponse                                                │
+   │ • interpreted_as includes match/order/probability tags      │
+   │ • llm_used indicates whether enrichment succeeded            │
+   │ • results contain stable scores and narratives              │
+   └──────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## CI and Validation Architecture
+
+```
+                         Push to main / PR
+                                │
+        ┌───────────────────────┼────────────────────────┐
+        │                       │                        │
+        ▼                       ▼                        ▼
+  Backend CI             Determinism Matrix CI          E2E CI
+  - ruff/mypy/tests      - Python 3.11 + 3.12          - full stack boot
+  - migration checks     - run/hash consistency         - UI and API journey
+  - API contracts        - artifacts + report output    - query + predict paths
+        │                       │                        │
+        └───────────────────────┼────────────────────────┘
+                                ▼
+                       Optional Frontend CI
+                       - vitest integration tests
+                       - UI interaction coverage
+```
+
+Performance telemetry (`data/performance_metrics.jsonl`) is aggregated into
+`data/performance_report.json` and uploaded by CI workflows as artifacts.
 
 ---
 

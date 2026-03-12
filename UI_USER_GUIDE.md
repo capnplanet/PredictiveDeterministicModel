@@ -14,7 +14,7 @@ Use this guide if you are:
 1. Start the stack:
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 2. Confirm backend health:
@@ -196,6 +196,11 @@ Purpose:
 - Submit natural-language retrieval prompts and receive ranked entity prediction results.
 
 Controls:
+- Prompt preset chips:
+  - Strongest Relationships
+  - Risk Investigation
+  - Operational Prioritization
+  - Anomaly Storyline
 - Query text input
 - Run Query button
 
@@ -204,7 +209,14 @@ Endpoint mapping:
 
 Output:
 - Interpreted query text
+- Interpretation tags with retrieval strategy and intent (match/order/probability)
+- `llm_used` behavior indicator from backend response
 - Result cards with entity scores and narrative text
+
+Important behavior:
+- Entity ordering is deterministic for a fixed run and dataset.
+- Narrative wording can vary when optional LLM enrichment is enabled.
+- Query route may report `match=broad_scan` when entity matching is query-intent driven rather than explicit ID matching.
 
 ## CSV Expectations for UI Uploads
 
@@ -315,6 +327,8 @@ Action:
   - Sync Run Ledger -> GET /runs
 - Inference
   - Execute Inference -> POST /predict
+- Query
+  - Run Query -> POST /query
 
 ## Known Scope of Current UI
 
@@ -324,6 +338,8 @@ Included in UI:
 - Train trigger
 - Run history and core metrics chips/cards
 - Entity prediction and output metrics
+- Query prompt presets with ranked retrieval results
+- Query interpretation metadata and optional LLM narrative enrichment
 
 Not currently included in UI:
 - Advanced training config editing from the frontend
@@ -336,6 +352,7 @@ Not currently included in UI:
 3. Move to Model Ops and click Execute Training Operation.
 4. Move to Run Ledger and click Sync Run Ledger.
 5. Move to Inference, enter 1-3 known entity IDs, and click Execute Inference.
-6. Narrate result chips: Reg, Prob, Rank for each entity.
+6. Move to Query, choose a preset prompt, run query, and review interpreted tags + ranked entities.
+7. Narrate result chips: Reg, Prob, Rank for each entity.
 
 This sequence is aligned with current tab names and control labels in the live UI.

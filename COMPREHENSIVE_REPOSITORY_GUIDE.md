@@ -11,6 +11,7 @@
 8. [Getting Started](#getting-started)
 9. [API Reference](#api-reference)
 10. [Security and Compliance Considerations](#security-and-compliance-considerations)
+11. [Current Platform Snapshot (March 2026)](#current-platform-snapshot-march-2026)
 
 ---
 
@@ -26,6 +27,28 @@ The **Deterministic Multimodal Analytics Stack** is a production-ready, full-sta
 **Technology Stack**: FastAPI + PostgreSQL + PyTorch + React, fully containerized with Docker Compose
 
 **Key Differentiator**: Unlike typical ML platforms, this system guarantees bit-exact reproducibility through deterministic algorithms, making it ideal for regulated industries (finance, healthcare, legal) where model auditability is critical.
+
+---
+
+## Current Platform Snapshot (March 2026)
+
+The repository currently includes the following production-facing capabilities:
+
+- End-to-end ingestion for entities, events, interactions, artifact manifests, and single artifact uploads
+- Demo preload route (`POST /demo/preload`) that can bootstrap data, feature extraction, and starter training
+- Deterministic multi-head prediction (`/predict`) with regression, probability, and ranking outputs
+- Natural-language query route (`/query`) with intent-aware ranking:
+  - relationship strength ordering
+  - elevated-probability intent handling
+  - retrieval strategy tagging (`explicit`, `fuzzy`, `broad_scan`)
+- Optional Hugging Face endpoint-backed query interpretation and narrative enrichment
+- Query UI presets for complex prompts (strongest relationships, risk investigation, operational prioritization, anomaly storyline)
+- Structured performance telemetry with report generation (`python -m app.cli performance-report`)
+- Active CI workflow gates:
+  - Backend CI
+  - Determinism Matrix CI
+  - E2E CI
+  - Frontend CI
 
 ---
 
@@ -427,18 +450,30 @@ assert original_run.predictions == reproduced_run.predictions
 - Export data manifests for regulatory review
 
 ### 6. UI Dashboard
-**Four main tabs**:
+**Five main tabs**:
 
-1. **Dataset Tab**: Upload CSV files for entities, events, interactions
-2. **Train Tab**: Trigger model training with current data
-3. **Runs Tab**: View all training runs with timestamps and IDs
-4. **Predict Tab**: Make predictions on specific entities and view results
+1. **Data Intake**: Upload CSV files, artifact manifests, and single artifacts
+2. **Model Ops**: Trigger deterministic training with current data
+3. **Run Ledger**: View all training runs with timestamps and metrics
+4. **Inference**: Run predictions on specific entities
+5. **Query**: Run natural-language retrieval prompts and inspect ranked results
 
 **Features**:
 - Real-time status updates
 - File upload with validation
+- Query prompt presets for advanced analyst prompts
+- Interpreted query metadata (`match`, `order`, `probability`)
 - Results visualization
 - Error reporting
+
+### 7. Query and Narrative Layer
+
+The query path is intentionally split into two phases for quality and latency:
+
+1. Deterministic candidate scoring and sorting
+2. Optional LLM enrichment only for the final top-k results
+
+This design keeps score integrity stable while allowing richer narratives. In repeated runs with unchanged data and run IDs, entity ordering is expected to remain stable; narrative wording may vary when LLM temperature is non-zero.
 
 ---
 
@@ -1058,6 +1093,19 @@ CUBLAS_WORKSPACE_CONFIG=:4096:8
 
 ### Data Ingestion
 
+**Demo preload (synthetic bootstrap)**
+```
+POST /demo/preload
+Content-Type: application/json
+
+{
+  "profile": "small",
+  "reset_existing": true,
+  "extract_features": true,
+  "train_model": true
+}
+```
+
 **Upload Entities**
 ```
 POST /ingest/entities
@@ -1196,6 +1244,39 @@ Content-Type: application/json
   "entity_ids": ["ent_001", "ent_002", "ent_003"],
   "run_id": "optional_run_id",
   "explanations": true
+}
+```
+
+### Natural-Language Query
+
+**Run Query Retrieval**
+```
+POST /query
+Content-Type: application/json
+
+{
+  "query": "Identify top entities by relationship strength with elevated probability.",
+  "limit": 5,
+  "run_id": "optional_run_id"
+}
+```
+
+**Response**:
+```json
+{
+  "run_id": "abc123...",
+  "query": "Identify top entities by relationship strength with elevated probability.",
+  "interpreted_as": "... [match=broad_scan; order=strongest; probability=elevated]",
+  "llm_used": true,
+  "results": [
+    {
+      "entity_id": "E00027",
+      "regression": -0.3466,
+      "probability": 0.4326,
+      "ranking_score": 0.6073,
+      "narrative": "Data-grounded narrative text"
+    }
+  ]
 }
 ```
 
