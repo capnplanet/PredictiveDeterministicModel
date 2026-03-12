@@ -22,6 +22,9 @@ services:
       CUBLAS_WORKSPACE_CONFIG: ":4096:8"
       APP_ENV: "docker"
       DATABASE_URL: "postgresql+psycopg2://analytics:analytics@db:5432/analytics"
+      LLM_ENABLED: "true"
+      HF_ENDPOINT_URL: "${HF_ENDPOINT_URL:-}"
+      HF_TOKEN: "${HF_TOKEN:-}"
     depends_on:
       - db
     volumes:
