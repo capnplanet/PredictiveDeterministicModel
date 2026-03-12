@@ -96,11 +96,16 @@ def _build_narrative_prompt(
     regression: float,
     probability: float,
     ranking_score: float,
+    analyst_query: Optional[str] = None,
 ) -> str:
+    analyst_block = f"Analyst query intent: {analyst_query}\n" if analyst_query else ""
     return (
-        "Rewrite the following deterministic model narrative into plain-text long form. "
-        "Do not invent facts, entities, or scores. Keep numeric values consistent with the facts. "
-        "Keep it to 5-8 sentences and plain language.\n\n"
+        "Produce a detailed, data-grounded analyst narrative using only the provided facts and scores. "
+        "Do not invent facts, entities, causes, or certainty. Keep all numeric values exactly consistent. "
+        "Include: observed relationship/event/artifact signals, likely risk drivers supported by evidence, "
+        "and explicit confidence limits where evidence is weak or missing. "
+        "Use 6-10 concise sentences in plain language.\n\n"
+        f"{analyst_block}"
         f"Entity ID: {entity_id}\n"
         f"Facts: {rel_ctx}\n"
         f"Scores: regression={regression:.4f}, probability={probability:.4f}, ranking={ranking_score:.4f}\n"
@@ -116,6 +121,7 @@ async def maybe_generate_long_narrative(
     regression: float,
     probability: float,
     ranking_score: float,
+    analyst_query: Optional[str] = None,
 ) -> Tuple[str, bool, str]:
     settings = get_settings()
     if not settings.llm_enabled:
@@ -130,6 +136,7 @@ async def maybe_generate_long_narrative(
         regression=regression,
         probability=probability,
         ranking_score=ranking_score,
+        analyst_query=analyst_query,
     )
 
     try:
