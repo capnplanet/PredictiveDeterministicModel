@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     JSON,
     Column,
     DateTime,
@@ -63,6 +64,25 @@ class Interaction(Base):
 ArtifactType = Enum("image", "video", "audio", name="artifact_type")
 FeatureStatus = Enum("pending", "done", "failed", name="feature_status")
 RunStatus = Enum("success", "failed", name="run_status")
+AgentRunStatus = Enum(
+    "pending",
+    "planning",
+    "awaiting_approval",
+    "executing",
+    "paused",
+    "completed",
+    "failed",
+    "aborted",
+    name="agent_run_status",
+)
+AgentStepStatus = Enum(
+    "pending",
+    "running",
+    "success",
+    "failed",
+    "skipped",
+    name="agent_step_status",
+)
 
 
 class Artifact(Base):
@@ -96,4 +116,46 @@ class ModelRun(Base):
 
     __table_args__ = (
         UniqueConstraint("model_sha256", "run_id", name="uq_modelrun_modelsha_runid"),
+    )
+
+
+class AgentRun(Base):
+    __tablename__ = "agent_runs"
+
+    agent_run_id = Column(String, primary_key=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    goal = Column(Text, nullable=False)
+    status = Column(AgentRunStatus, nullable=False, default="pending")
+    plan = Column(JSON, nullable=False, default=list)
+    current_step_index = Column(Integer, nullable=False, default=0)
+    max_steps = Column(Integer, nullable=False, default=8)
+    step_retries = Column(Integer, nullable=False, default=1)
+    require_approval = Column(Boolean, nullable=False, default=True)
+    run_context = Column(JSON, nullable=False, default=dict)
+    metrics = Column(JSON, nullable=False, default=dict)
+    last_error = Column(Text, nullable=True)
+
+    steps = relationship("AgentStep", back_populates="agent_run", cascade="all, delete-orphan")
+
+
+class AgentStep(Base):
+    __tablename__ = "agent_steps"
+
+    step_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    agent_run_id = Column(String, ForeignKey("agent_runs.agent_run_id"), nullable=False)
+    step_index = Column(Integer, nullable=False)
+    tool_name = Column(String, nullable=False)
+    arguments = Column(JSON, nullable=False, default=dict)
+    status = Column(AgentStepStatus, nullable=False, default="pending")
+    retry_count = Column(Integer, nullable=False, default=0)
+    output = Column(JSON, nullable=True)
+    error_message = Column(Text, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    agent_run = relationship("AgentRun", back_populates="steps")
+
+    __table_args__ = (
+        UniqueConstraint("agent_run_id", "step_index", name="uq_agent_step_run_index"),
     )

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -144,3 +144,87 @@ class DemoPreloadResponse(BaseModel):
     features: Dict[str, int]
     training: Optional[DemoPreloadTrainingSummary] = None
     sample_entity_ids: List[str] = []
+
+
+class AgentGoalRequest(BaseModel):
+    goal: str = Field(..., min_length=5, max_length=500)
+    context: Dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentStepPlan(BaseModel):
+    step_index: int
+    tool_name: str
+    arguments: Dict[str, Any] = Field(default_factory=dict)
+    status: Literal["pending", "running", "success", "failed", "skipped"] = "pending"
+    retry_count: int = 0
+    output: Optional[Dict[str, Any]] = None
+    error_message: Optional[str] = None
+
+
+class AgentRunResponse(BaseModel):
+    agent_run_id: str
+    created_at: datetime
+    updated_at: datetime
+    goal: str
+    status: Literal[
+        "pending",
+        "planning",
+        "awaiting_approval",
+        "executing",
+        "paused",
+        "completed",
+        "failed",
+        "aborted",
+    ]
+    current_step_index: int
+    max_steps: int
+    step_retries: int
+    require_approval: bool
+    context: Dict[str, Any] = Field(default_factory=dict)
+    metrics: Dict[str, Any] = Field(default_factory=dict)
+    plan: List[AgentStepPlan] = Field(default_factory=list)
+    last_error: Optional[str] = None
+
+
+class AgentPlanResponse(BaseModel):
+    agent_run_id: str
+    status: str
+    goal: str
+    plan: List[AgentStepPlan]
+
+
+class AgentPlanApprovalRequest(BaseModel):
+    approved: bool
+    reviewer_notes: Optional[str] = Field(default=None, max_length=500)
+
+
+class AgentStepExecuteRequest(BaseModel):
+    force_continue: bool = False
+
+
+class AgentStepResult(BaseModel):
+    agent_run_id: str
+    step_id: str
+    step_index: int
+    tool_name: str
+    status: Literal["pending", "running", "success", "failed", "skipped"]
+    retry_count: int
+    output: Optional[Dict[str, Any]] = None
+    error_message: Optional[str] = None
+
+
+class AgentControlRequest(BaseModel):
+    action: Literal["pause", "resume", "abort"]
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+
+class AgentStatusResponse(BaseModel):
+    agent_run_id: str
+    status: str
+    current_step_index: int
+    total_steps: int
+    completed_steps: int
+    failed_steps: int
+    goal: str
+    updated_at: datetime
+    last_error: Optional[str] = None

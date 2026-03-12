@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = 5.0
     llm_max_tokens: int = 500
     llm_temperature: float = 0.2
+    agent_enabled: bool = Field(default=False, validation_alias=AliasChoices("agent_enabled", "AGENT_ENABLED"))
+    agent_max_plan_steps: int = 8
+    agent_max_step_retries: int = 1
+    agent_step_timeout_seconds: float = 30.0
+    agent_require_approval: bool = True
 
     class Config:
         env_prefix = ""
