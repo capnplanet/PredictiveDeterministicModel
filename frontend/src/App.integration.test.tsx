@@ -208,4 +208,15 @@ describe('App integration flow', () => {
 
     expect(screen.getByText('Entity E2 narrative.')).toBeInTheDocument();
   });
+
+  it('loads a pre-populated query prompt when a preset is selected', async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByTestId('tab-query'));
+    fireEvent.click(screen.getByTestId('prompt-strongest-relationships'));
+
+    const input = screen.getByTestId('input-query') as HTMLInputElement;
+    expect(input.value.toLowerCase()).toContain('strongest relationships');
+    expect(screen.getByTestId('status-banner').textContent).toContain('Example query loaded.');
+  });
 });

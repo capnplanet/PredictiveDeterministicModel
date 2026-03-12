@@ -152,6 +152,20 @@ def test_ingest_train_predict_api_flow() -> None:
     strongest_scores = [float(item["ranking_score"]) for item in strongest_results]
     assert strongest_scores == sorted(strongest_scores, reverse=True)
 
+    relationship_query = client.post(
+        "/query",
+        json={
+            "query": "show relationship patterns across entities",
+            "run_id": train_body["run_id"],
+            "limit": 2,
+        },
+    )
+    assert relationship_query.status_code == 200
+    relationship_results = relationship_query.json()["results"]
+    assert len(relationship_results) >= 1
+    relationship_scores = [float(item["ranking_score"]) for item in relationship_results]
+    assert relationship_scores == sorted(relationship_scores, reverse=True)
+
     weakest_query = client.post(
         "/query",
         json={

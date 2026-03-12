@@ -93,6 +93,29 @@ const formatMetric = (value: number | undefined): string => {
   return value.toFixed(3);
 };
 
+const QUERY_PROMPT_PRESETS: Array<{ label: string; prompt: string }> = [
+  {
+    label: 'Strongest Relationships',
+    prompt:
+      'Show entities with the strongest relationships and highest ranking scores. For each result, provide a detailed narrative grounded in observed interactions, event patterns, and artifact signals from the latest trained run.',
+  },
+  {
+    label: 'Risk Investigation',
+    prompt:
+      'Identify top entities by relationship strength that also show elevated probability. Explain likely risk drivers using only available model outputs and ingested evidence, and describe confidence limits.',
+  },
+  {
+    label: 'Operational Prioritization',
+    prompt:
+      'Rank entities for immediate operational follow-up based on relationship intensity and ranking score. Return comprehensive, data-grounded narratives that reference temporal events and interaction context.',
+  },
+  {
+    label: 'Anomaly Storyline',
+    prompt:
+      'Find entities with unusual relationship structures and strong ranking scores. Generate complex but accurate narratives that summarize what changed, why it matters, and what corroborating signals exist in ingested data.',
+  },
+];
+
 export const App: React.FC = () => {
   const [tab, setTab] = useState<Tab>('dataset');
   const [runs, setRuns] = useState<RunInfo[]>([]);
@@ -237,6 +260,11 @@ export const App: React.FC = () => {
     } catch (error) {
       setStatusMessage(`Query failed. ${(error as Error).message}`, 'error');
     }
+  };
+
+  const handleUseQueryPrompt = (prompt: string) => {
+    setQueryText(prompt);
+    setStatusMessage('Example query loaded. Review and run when ready.', 'neutral');
   };
 
   const activeTitle: Record<Tab, string> = {
@@ -533,11 +561,24 @@ export const App: React.FC = () => {
           <h2>Natural Language Query</h2>
           <p className="panel-intro">Ask questions in plain language to retrieve entity predictions and long-form grounded narratives.</p>
           <div className="predict-console">
+            <div className="query-prompt-grid" data-testid="query-prompt-grid">
+              {QUERY_PROMPT_PRESETS.map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  className="prompt-chip"
+                  data-testid={`prompt-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+                  onClick={() => handleUseQueryPrompt(item.prompt)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
             <input
               data-testid="input-query"
               className="text-input"
               type="text"
-              placeholder="Example: show entities with strongest relationship signals"
+              placeholder="Choose a preset or enter a custom query"
               value={queryText}
               onChange={(e) => setQueryText(e.target.value)}
             />

@@ -32,9 +32,13 @@ def _infer_sort_intent(query: str) -> Literal["strongest", "weakest", "default"]
     lowered = query.lower()
     weak_terms = ("weak", "weakest", "lowest", "bottom", "least")
     strong_terms = ("strong", "strongest", "highest", "top", "best")
+    relationship_terms = ("relationship", "relationships", "interaction", "interactions", "connected", "connection")
     if any(term in lowered for term in weak_terms):
         return "weakest"
     if any(term in lowered for term in strong_terms):
+        return "strongest"
+    if any(term in lowered for term in relationship_terms):
+        # Relationship-centric retrieval defaults to ranking-score ordering.
         return "strongest"
     return "default"
 
