@@ -10,6 +10,7 @@ from app.api.schemas import (
     ArtifactIngestionReportModel,
     DemoPreloadRequest,
     DemoPreloadResponse,
+    DemoPreloadTrainingSummary,
     IngestionReportModel,
 )
 from app.core.config import get_settings
@@ -93,7 +94,7 @@ async def preload_demo_data(request: DemoPreloadRequest) -> DemoPreloadResponse:
         if request.extract_features:
             updated = extract_features_for_pending(session)
 
-    training_summary = None
+    training_summary: DemoPreloadTrainingSummary | None = None
     if request.train_model:
         import json
 
@@ -116,7 +117,7 @@ async def preload_demo_data(request: DemoPreloadRequest) -> DemoPreloadResponse:
             )
         )
         run_id, metrics = run_training(config_path=quick_train_config_path)
-        training_summary = {"run_id": run_id, "metrics": metrics}
+        training_summary = DemoPreloadTrainingSummary(run_id=run_id, metrics=metrics)
 
     return DemoPreloadResponse(
         profile=request.profile,
