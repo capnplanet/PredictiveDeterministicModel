@@ -29,6 +29,8 @@ For comprehensive information about this repository and how to use it in enterpr
   - Enterprise integration patterns
   - Determinism guarantees and explainability methods
 
+- **[Predictive Analytics Capabilities Guide](PREDICTIVE_ANALYTICS_CAPABILITIES.md)** - Plain-language deep dive into predictive capabilities, with in-context explanations of technical jargon and practical workflow guidance
+
 - **[Telemetry Snapshot](TEST_TELEMETRY_2026-02-23.md)** - Historical CI run telemetry and performance summary example
 
 ## 🚀 Quick Start

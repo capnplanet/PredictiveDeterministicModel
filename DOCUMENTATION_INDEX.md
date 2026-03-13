@@ -190,6 +190,40 @@ This repository now includes comprehensive documentation explaining the system, 
 
 ---
 
+### 6. [PREDICTIVE_ANALYTICS_CAPABILITIES.md](PREDICTIVE_ANALYTICS_CAPABILITIES.md) (16KB)
+**Purpose**: Plain-language deep dive into predictive analytics capabilities  
+**Best for**: Analysts, product teams, implementation stakeholders, and reviewers who need detailed capability coverage without heavy jargon
+
+**Contents**:
+
+#### End-to-End Capabilities
+- Structured ingestion (entities, events, interactions)
+- Artifact ingestion (image, audio, video) with integrity hashing
+- Feature extraction and cache/version tracking
+- Deterministic training and reproducibility controls
+- Multi-task prediction outputs (regression, probability, ranking)
+- Built-in explainability outputs
+- Natural-language query over predictions
+- Agentic workflows with approvals, audit, and determinism gates
+- Compliance reporting and telemetry
+
+#### Plain-Language Explanations
+- In-context explanations of technical terminology
+- Practical examples for each capability
+- Plain definitions of concepts like determinism, explainability, lineage, and threshold policy
+
+#### Operational Guidance
+- Typical workflow from ingestion to decision support
+- Distinguishing strengths of the repository
+- Practical limitations and interpretation guidance
+
+**Use when you need**:
+- A complete capability inventory in simple language
+- A reader-friendly document for cross-functional audiences
+- Clear definitions for ML and governance terminology
+
+---
+
 ## 🎯 Which Document Should I Read?
 
 ### "I just want to try it out quickly"
@@ -213,6 +247,9 @@ This repository now includes comprehensive documentation explaining the system, 
 ### "I want to see if this fits my use case"
 → Read Section 5 (Use Cases) in **[COMPREHENSIVE_REPOSITORY_GUIDE.md](COMPREHENSIVE_REPOSITORY_GUIDE.md)**
 
+### "I need a plain-language capability breakdown"
+→ Read **[PREDICTIVE_ANALYTICS_CAPABILITIES.md](PREDICTIVE_ANALYTICS_CAPABILITIES.md)**
+
 ---
 
 ## 📊 Documentation Statistics
@@ -224,7 +261,8 @@ This repository now includes comprehensive documentation explaining the system, 
 | QUICK_START_GUIDE.md | 9.2KB | Rapid onboarding | API examples, formats |
 | COMPREHENSIVE_REPOSITORY_GUIDE.md | 46KB | Complete guide | Architecture, integration, use cases |
 | ARCHITECTURE_DIAGRAMS.md | 27KB | Visual reference | Diagrams, flows |
-| **Total** | **96.1KB** | **Full coverage** | **All aspects including UI operations** |
+| PREDICTIVE_ANALYTICS_CAPABILITIES.md | 16KB | Plain-language deep dive | End-to-end capabilities, glossary |
+| **Total** | **112.1KB** | **Full coverage** | **All aspects including UI operations and plain-language predictive capability guidance** |
 
 ---
 
@@ -266,4 +304,4 @@ This repository now includes comprehensive documentation explaining the system, 
 *Documentation Version: 1.1*  
 *Created: January 2026*  
 *Updated: March 2026*  
-*Total Documentation: 96.1KB across 5 comprehensive files*
+*Total Documentation: 112.1KB across 6 comprehensive files*
