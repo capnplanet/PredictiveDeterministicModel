@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import os
+from datetime import datetime
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import get_settings
-from app.db.models import AgentStep
+from app.db.models import AgentAuditEvent, AgentStep, ModelRun
 from app.db.session import session_scope
 from app.main import app
 from app.services.agent_tools import AGENT_TOOL_REGISTRY, AgentToolSpec
@@ -260,3 +261,87 @@ def test_agent_plan_includes_determinism_step_when_requested() -> None:
     plan = create_response.json()["plan"]
     tool_names = [step["tool_name"] for step in plan]
     assert "verify_run_determinism" in tool_names
+
+
+@pytest.mark.integration
+@pytest.mark.api
+def test_agent_train_step_sets_model_run_lineage(monkeypatch: pytest.MonkeyPatch) -> None:
+    get_settings.cache_clear()
+    os.environ["AGENT_ENABLED"] = "true"
+    os.environ["AGENT_REQUIRE_APPROVAL"] = "false"
+
+    seeded_run_id = "run_agent_lineage_seed"
+    with session_scope() as session:
+        session.merge(
+            ModelRun(
+                run_id=seeded_run_id,
+                config={"seed": 1234},
+                metrics={"loss": 0.0},
+                model_sha256="seed_sha_agent_lineage",
+                data_manifest={"source": "test"},
+                status="success",  # type: ignore[assignment]
+                logs_path="artifacts/test/log.jsonl",
+                created_at=datetime.utcnow(),
+            )
+        )
+
+    def _fake_run_training(config_path=None):  # type: ignore[no-untyped-def]
+        return seeded_run_id, {"ok": 1.0}
+
+    monkeypatch.setattr("app.services.agent_tools.run_training", _fake_run_training)
+
+    client = TestClient(app)
+    create_response = client.post(
+        "/agents/runs",
+        json={
+            "goal": "Train a refreshed model",
+            "context": {},
+        },
+    )
+    assert create_response.status_code == 200
+    run_id = create_response.json()["agent_run_id"]
+    plan = create_response.json()["plan"]
+    assert plan[0]["tool_name"] == "train_model"
+
+    execute_response = client.post(
+        f"/agents/runs/{run_id}/steps/0/execute",
+        json={"force_continue": False},
+    )
+    assert execute_response.status_code == 200
+    assert execute_response.json()["status"] == "success"
+
+    with session_scope() as session:
+        run = session.get(ModelRun, seeded_run_id)
+        assert run is not None
+        assert run.created_by_agent_run_id == run_id
+
+
+@pytest.mark.integration
+@pytest.mark.api
+def test_agent_audit_events_are_immutable() -> None:
+    get_settings.cache_clear()
+    os.environ["AGENT_ENABLED"] = "true"
+    os.environ["AGENT_REQUIRE_APPROVAL"] = "false"
+
+    client = TestClient(app)
+    create_response = client.post(
+        "/agents/runs",
+        json={
+            "goal": "Search likely risk entities",
+            "context": {"query": "likely risk entities"},
+        },
+    )
+    assert create_response.status_code == 200
+    run_id = create_response.json()["agent_run_id"]
+
+    with pytest.raises(ValueError):
+        with session_scope() as session:
+            event = (
+                session.query(AgentAuditEvent)
+                .filter(AgentAuditEvent.agent_run_id == run_id)
+                .order_by(AgentAuditEvent.created_at.asc())
+                .first()
+            )
+            assert event is not None
+            event.event_type = "tampered"
+            session.flush()

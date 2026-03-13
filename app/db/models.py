@@ -16,6 +16,9 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy import (
+    event as sqlalchemy_event,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -173,3 +176,13 @@ class AgentAuditEvent(Base):
     details = Column(JSON, nullable=False, default=dict)
 
     agent_run = relationship("AgentRun")
+
+
+@sqlalchemy_event.listens_for(AgentAuditEvent, "before_update")
+def _prevent_agent_audit_event_update(*_args: object, **_kwargs: object) -> None:
+    raise ValueError("Agent audit events are immutable and cannot be updated")
+
+
+@sqlalchemy_event.listens_for(AgentAuditEvent, "before_delete")
+def _prevent_agent_audit_event_delete(*_args: object, **_kwargs: object) -> None:
+    raise ValueError("Agent audit events are immutable and cannot be deleted")

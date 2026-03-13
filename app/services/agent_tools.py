@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict
 
 from app.api.routes.predict import predict as predict_entities
@@ -8,7 +9,7 @@ from app.api.routes.query import query_predictions
 from app.api.schemas import PredictRequest, QueryRequest
 from app.db.models import ModelRun
 from app.db.session import session_scope
-from app.training.train import reproduce_run
+from app.training.train import reproduce_run, run_training
 
 ToolExecutor = Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]
 
@@ -94,6 +95,24 @@ async def _tool_verify_run_determinism(arguments: Dict[str, Any]) -> Dict[str, A
     }
 
 
+async def _tool_train_model(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    config_path_value = arguments.get("config_path")
+    config_path = Path(str(config_path_value)) if isinstance(config_path_value, str) and config_path_value else None
+    run_id, metrics = run_training(config_path=config_path)
+
+    agent_run_id = str(arguments.get("agent_run_id", "")).strip()
+    if agent_run_id:
+        with session_scope() as session:
+            run = session.get(ModelRun, run_id)
+            if run is not None:
+                run.created_by_agent_run_id = agent_run_id  # type: ignore[assignment]
+
+    return {
+        "run_id": run_id,
+        "metrics": metrics,
+    }
+
+
 AGENT_TOOL_REGISTRY: Dict[str, AgentToolSpec] = {
     "get_run_metrics": AgentToolSpec(
         name="get_run_metrics",
@@ -122,6 +141,13 @@ AGENT_TOOL_REGISTRY: Dict[str, AgentToolSpec] = {
         deterministic_safe=True,
         idempotent=True,
         executor=_tool_verify_run_determinism,
+    ),
+    "train_model": AgentToolSpec(
+        name="train_model",
+        description="Train a model and attribute the created run to the current agent run.",
+        deterministic_safe=True,
+        idempotent=False,
+        executor=_tool_train_model,
     ),
 }
 

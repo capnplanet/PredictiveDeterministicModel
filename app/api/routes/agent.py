@@ -73,7 +73,18 @@ def _plan_steps(goal: str, context: Dict[str, Any], max_steps: int) -> List[Dict
     run_id = context.get("run_id")
     entity_ids = context.get("entity_ids")
     query_text = context.get("query")
+    config_path = context.get("config_path")
     force_determinism = bool(context.get("force_determinism_check", False))
+
+    if "train" in lowered or "retrain" in lowered:
+        steps.append(
+            {
+                "tool_name": "train_model",
+                "arguments": {
+                    "config_path": str(config_path) if isinstance(config_path, str) and config_path.strip() else None,
+                },
+            }
+        )
 
     if isinstance(run_id, str) and run_id.strip():
         steps.append(
@@ -176,8 +187,12 @@ async def _execute_single_step(run: AgentRun, step: AgentStep, force_continue: b
 
     try:
         timeout_seconds = max(0.1, float(get_settings().agent_step_timeout_seconds))
+        step_arguments = {
+            **_coerce_dict(step.arguments),
+            "agent_run_id": run.agent_run_id,
+        }
         result = await asyncio.wait_for(
-            _invoke_tool(step.tool_name, _coerce_dict(step.arguments)),
+            _invoke_tool(step.tool_name, step_arguments),
             timeout=timeout_seconds,
         )
         step.status = "success"
