@@ -228,3 +228,12 @@ class AgentStatusResponse(BaseModel):
     goal: str
     updated_at: datetime
     last_error: Optional[str] = None
+
+
+class AgentAuditEventResponse(BaseModel):
+    event_id: str
+    agent_run_id: str
+    created_at: datetime
+    event_type: str
+    actor: str
+    details: Dict[str, Any] = Field(default_factory=dict)

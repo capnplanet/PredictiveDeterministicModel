@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
+from time import perf_counter
 from typing import Any, Dict, List, Tuple
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
-from app.api.routes.predict import predict as predict_entities
-from app.api.routes.query import query_predictions
 from app.api.schemas import (
+    AgentAuditEventResponse,
     AgentControlRequest,
     AgentGoalRequest,
     AgentPlanApprovalRequest,
@@ -19,12 +20,12 @@ from app.api.schemas import (
     AgentStepExecuteRequest,
     AgentStepPlan,
     AgentStepResult,
-    PredictRequest,
-    QueryRequest,
 )
 from app.core.config import get_settings
-from app.db.models import AgentRun, AgentStep, ModelRun
+from app.core.performance import emit_performance_event
+from app.db.models import AgentAuditEvent, AgentRun, AgentStep
 from app.db.session import session_scope
+from app.services.agent_tools import dispatch_agent_tool
 
 router = APIRouter(prefix="/agents", tags=["agent"])
 
@@ -72,6 +73,7 @@ def _plan_steps(goal: str, context: Dict[str, Any], max_steps: int) -> List[Dict
     run_id = context.get("run_id")
     entity_ids = context.get("entity_ids")
     query_text = context.get("query")
+    force_determinism = bool(context.get("force_determinism_check", False))
 
     if isinstance(run_id, str) and run_id.strip():
         steps.append(
@@ -108,6 +110,18 @@ def _plan_steps(goal: str, context: Dict[str, Any], max_steps: int) -> List[Dict
             }
         )
 
+    if (
+        ("determinism" in lowered or "reproduc" in lowered or force_determinism)
+        and isinstance(run_id, str)
+        and run_id.strip()
+    ):
+        steps.append(
+            {
+                "tool_name": "verify_run_determinism",
+                "arguments": {"run_id": run_id.strip()},
+            }
+        )
+
     if not steps:
         steps.append(
             {
@@ -123,54 +137,26 @@ def _plan_steps(goal: str, context: Dict[str, Any], max_steps: int) -> List[Dict
     return steps[: max_steps]
 
 
+def _record_audit_event(
+    *,
+    session,
+    run_id: str,
+    event_type: str,
+    actor: str = "system",
+    details: Dict[str, Any] | None = None,
+) -> None:
+    session.add(
+        AgentAuditEvent(
+            agent_run_id=run_id,
+            event_type=event_type,
+            actor=actor,
+            details=_coerce_dict(details),
+        )
+    )
+
+
 async def _invoke_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-    if tool_name == "get_run_metrics":
-        run_id = str(arguments.get("run_id", "")).strip()
-        if not run_id:
-            raise RuntimeError("run_id is required")
-        with session_scope() as session:
-            run = session.get(ModelRun, run_id)
-            if run is None:
-                raise RuntimeError(f"Run not found: {run_id}")
-            return {
-                "run_id": run.run_id,
-                "status": str(run.status),
-                "metrics": run.metrics,
-                "created_at": run.created_at.isoformat(),
-            }
-
-    if tool_name == "predict_entities":
-        ids = arguments.get("entity_ids")
-        if not isinstance(ids, list) or not ids:
-            raise RuntimeError("entity_ids must be a non-empty list")
-        response = await predict_entities(
-            PredictRequest(
-                entity_ids=[str(v) for v in ids],
-                run_id=arguments.get("run_id"),
-                explanations=False,
-                narrative_mode=arguments.get("narrative_mode", "template"),
-            )
-        )
-        return {
-            "run_id": response.run_id,
-            "prediction_count": len(response.predictions),
-            "predictions": [item.model_dump() for item in response.predictions],
-        }
-
-    if tool_name == "query_entities":
-        query = str(arguments.get("query", "")).strip()
-        if not query:
-            raise RuntimeError("query is required")
-        response = await query_predictions(
-            QueryRequest(
-                query=query,
-                run_id=arguments.get("run_id"),
-                limit=int(arguments.get("limit", 5)),
-            )
-        )
-        return response.model_dump()
-
-    raise RuntimeError(f"Unsupported tool: {tool_name}")
+    return await dispatch_agent_tool(tool_name=tool_name, arguments=arguments)
 
 
 def _next_pending_step(steps: List[AgentStep]) -> AgentStep | None:
@@ -181,6 +167,7 @@ def _next_pending_step(steps: List[AgentStep]) -> AgentStep | None:
 
 
 async def _execute_single_step(run: AgentRun, step: AgentStep, force_continue: bool) -> Tuple[AgentStep, bool]:
+    started = perf_counter()
     now = datetime.utcnow()
     step.status = "running"
     step.started_at = now
@@ -188,14 +175,53 @@ async def _execute_single_step(run: AgentRun, step: AgentStep, force_continue: b
     run.updated_at = now
 
     try:
-        result = await _invoke_tool(step.tool_name, _coerce_dict(step.arguments))
+        timeout_seconds = max(0.1, float(get_settings().agent_step_timeout_seconds))
+        result = await asyncio.wait_for(
+            _invoke_tool(step.tool_name, _coerce_dict(step.arguments)),
+            timeout=timeout_seconds,
+        )
         step.status = "success"
         step.output = result
         step.error_message = None
         step.completed_at = datetime.utcnow()
         run.current_step_index = max(run.current_step_index, step.step_index + 1)
         run.updated_at = datetime.utcnow()
+
+        emit_performance_event(
+            "agent.step.execute",
+            status="ok",
+            duration_ms=(perf_counter() - started) * 1000.0,
+            agent_run_id=run.agent_run_id,
+            step_index=step.step_index,
+            tool_name=step.tool_name,
+            retry_count=step.retry_count,
+        )
         return step, True
+    except asyncio.TimeoutError:
+        step.retry_count += 1
+        step.error_message = "Step execution timed out"
+        step.completed_at = datetime.utcnow()
+
+        if step.retry_count <= run.step_retries and force_continue:
+            step.status = "pending"
+        else:
+            step.status = "failed"
+            run.status = "failed"
+            run.last_error = step.error_message
+        run.updated_at = datetime.utcnow()
+
+        emit_performance_event(
+            "agent.step.execute",
+            status="error",
+            duration_ms=(perf_counter() - started) * 1000.0,
+            agent_run_id=run.agent_run_id,
+            step_index=step.step_index,
+            tool_name=step.tool_name,
+            retry_count=step.retry_count,
+            error_type="TimeoutError",
+            error=step.error_message,
+        )
+        return step, False
     except Exception as exc:  # noqa: BLE001
         step.retry_count += 1
         step.error_message = str(exc)
@@ -208,6 +234,18 @@ async def _execute_single_step(run: AgentRun, step: AgentStep, force_continue: b
             run.status = "failed"
             run.last_error = str(exc)
         run.updated_at = datetime.utcnow()
+
+        emit_performance_event(
+            "agent.step.execute",
+            status="error",
+            duration_ms=(perf_counter() - started) * 1000.0,
+            agent_run_id=run.agent_run_id,
+            step_index=step.step_index,
+            tool_name=step.tool_name,
+            retry_count=step.retry_count,
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
         return step, False
 
 
@@ -239,6 +277,17 @@ async def create_agent_run(request: AgentGoalRequest) -> AgentRunResponse:
         session.add(run)
         session.flush()
 
+        _record_audit_event(
+            session=session,
+            run_id=run.agent_run_id,
+            event_type="run_created",
+            details={
+                "status": initial_status,
+                "steps_total": len(plan_payload),
+                "require_approval": require_approval,
+            },
+        )
+
         for idx, entry in enumerate(plan_payload):
             session.add(
                 AgentStep(
@@ -251,7 +300,11 @@ async def create_agent_run(request: AgentGoalRequest) -> AgentRunResponse:
             )
 
         session.flush()
-        steps = list(session.execute(select(AgentStep).where(AgentStep.agent_run_id == run.agent_run_id).order_by(AgentStep.step_index)).scalars().all())
+        steps = list(
+            session.execute(
+                select(AgentStep).where(AgentStep.agent_run_id == run.agent_run_id).order_by(AgentStep.step_index)
+            ).scalars().all()
+        )
         return _run_to_response(run, steps)
 
 
@@ -302,6 +355,18 @@ async def approve_agent_plan(agent_run_id: str, request: AgentPlanApprovalReques
             run.metrics = {**_coerce_dict(run.metrics), "review_note": notes}
         run.updated_at = datetime.utcnow()
 
+        _record_audit_event(
+            session=session,
+            run_id=run.agent_run_id,
+            event_type="plan_reviewed",
+            actor="reviewer",
+            details={
+                "approved": request.approved,
+                "reviewer_notes": request.reviewer_notes or "",
+                "new_status": str(run.status),
+            },
+        )
+
         session.flush()
         return _run_to_response(run, steps)
 
@@ -343,6 +408,19 @@ async def execute_agent_step(agent_run_id: str, step_index: int, request: AgentS
         if ok and pending == 0 and failed == 0:
             run.status = "completed"
             run.updated_at = datetime.utcnow()
+
+        _record_audit_event(
+            session=session,
+            run_id=run.agent_run_id,
+            event_type="step_executed",
+            details={
+                "step_index": step.step_index,
+                "tool_name": step.tool_name,
+                "status": str(step.status),
+                "retry_count": step.retry_count,
+                "error_message": step.error_message,
+            },
+        )
 
         session.flush()
         return AgentStepResult(
@@ -401,6 +479,19 @@ async def execute_agent_loop(agent_run_id: str) -> AgentRunResponse:
             run.status = "completed"
         run.updated_at = datetime.utcnow()
 
+        _record_audit_event(
+            session=session,
+            run_id=run.agent_run_id,
+            event_type="loop_executed",
+            details={
+                "iterations": iterations,
+                "steps_succeeded": succeeded,
+                "steps_failed": failed,
+                "steps_pending": pending,
+                "status": str(run.status),
+            },
+        )
+
         session.flush()
         return _run_to_response(run, steps)
 
@@ -415,14 +506,17 @@ async def control_agent_run(agent_run_id: str, request: AgentControlRequest) -> 
         if request.action == "pause":
             if str(run.status) not in {"pending", "executing"}:
                 raise HTTPException(status_code=409, detail=f"Run cannot be paused from state: {run.status}")
+            previous_status = str(run.status)
             run.status = "paused"
         elif request.action == "resume":
             if str(run.status) != "paused":
                 raise HTTPException(status_code=409, detail=f"Run cannot be resumed from state: {run.status}")
+            previous_status = str(run.status)
             run.status = "pending"
         elif request.action == "abort":
             if str(run.status) in {"completed", "aborted"}:
                 raise HTTPException(status_code=409, detail=f"Run cannot be aborted from state: {run.status}")
+            previous_status = str(run.status)
             run.status = "aborted"
         run.updated_at = datetime.utcnow()
 
@@ -430,6 +524,19 @@ async def control_agent_run(agent_run_id: str, request: AgentControlRequest) -> 
         if request.reason:
             metrics["control_reason"] = request.reason
         run.metrics = metrics
+
+        _record_audit_event(
+            session=session,
+            run_id=run.agent_run_id,
+            event_type="run_controlled",
+            actor="operator",
+            details={
+                "action": request.action,
+                "reason": request.reason or "",
+                "previous_status": previous_status,
+                "new_status": str(run.status),
+            },
+        )
 
         steps = list(
             session.execute(
@@ -491,3 +598,31 @@ async def list_agent_runs() -> List[AgentStatusResponse]:
                 )
             )
         return responses
+
+
+@router.get("/runs/{agent_run_id}/audit", response_model=List[AgentAuditEventResponse])
+async def list_agent_run_audit_events(agent_run_id: str) -> List[AgentAuditEventResponse]:
+    with session_scope() as session:
+        run = session.get(AgentRun, agent_run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Agent run not found")
+
+        events = list(
+            session.execute(
+                select(AgentAuditEvent)
+                .where(AgentAuditEvent.agent_run_id == agent_run_id)
+                .order_by(AgentAuditEvent.created_at.asc())
+            ).scalars().all()
+        )
+
+        return [
+            AgentAuditEventResponse(
+                event_id=str(event.event_id),
+                agent_run_id=event.agent_run_id,
+                created_at=event.created_at,
+                event_type=event.event_type,
+                actor=event.actor,
+                details=_coerce_dict(event.details),
+            )
+            for event in events
+        ]
