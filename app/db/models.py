@@ -4,8 +4,8 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    Boolean,
     JSON,
+    Boolean,
     Column,
     DateTime,
     Enum,
@@ -15,6 +15,9 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+)
+from sqlalchemy import (
+    event as sqlalchemy_event,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base, relationship
@@ -113,6 +116,7 @@ class ModelRun(Base):
     data_manifest = Column(JSON, nullable=False)
     status = Column(RunStatus, nullable=False)
     logs_path = Column(Text, nullable=False)
+    created_by_agent_run_id = Column(String, ForeignKey("agent_runs.agent_run_id"), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("model_sha256", "run_id", name="uq_modelrun_modelsha_runid"),
@@ -159,3 +163,26 @@ class AgentStep(Base):
     __table_args__ = (
         UniqueConstraint("agent_run_id", "step_index", name="uq_agent_step_run_index"),
     )
+
+
+class AgentAuditEvent(Base):
+    __tablename__ = "agent_audit_events"
+
+    event_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    agent_run_id = Column(String, ForeignKey("agent_runs.agent_run_id"), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    event_type = Column(String, nullable=False)
+    actor = Column(String, nullable=False, default="system")
+    details = Column(JSON, nullable=False, default=dict)
+
+    agent_run = relationship("AgentRun")
+
+
+@sqlalchemy_event.listens_for(AgentAuditEvent, "before_update")
+def _prevent_agent_audit_event_update(*_args: object, **_kwargs: object) -> None:
+    raise ValueError("Agent audit events are immutable and cannot be updated")
+
+
+@sqlalchemy_event.listens_for(AgentAuditEvent, "before_delete")
+def _prevent_agent_audit_event_delete(*_args: object, **_kwargs: object) -> None:
+    raise ValueError("Agent audit events are immutable and cannot be deleted")

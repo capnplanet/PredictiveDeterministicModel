@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     agent_max_step_retries: int = 1
     agent_step_timeout_seconds: float = 30.0
     agent_require_approval: bool = True
+    agent_enforce_determinism: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("agent_enforce_determinism", "AGENT_ENFORCE_DETERMINISM"),
+    )
 
     class Config:
         env_prefix = ""

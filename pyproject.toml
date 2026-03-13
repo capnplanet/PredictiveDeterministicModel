@@ -12,6 +12,7 @@ ignore_missing_imports = true
 module = [
 	"app.db.models",
 	"app.api.routes.ingest",
+	"app.api.routes.agent",
 	"app.api.routes.predict",
 	"app.api.routes.train",
 	"app.services.feature_extraction",
@@ -19,6 +20,7 @@ module = [
 	"app.training.synth_data",
 	"app.ml.image_features",
 	"app.ml.feature_version",
+	"app.tests.test_agent_api_integration",
 ]
 ignore_errors = true
 
