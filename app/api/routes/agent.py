@@ -187,6 +187,13 @@ def _append_unique_metric_value(run: AgentRun, key: str, value: str) -> None:
     run.metrics = metrics
 
 
+def _append_unique_metric_values(run: AgentRun, key: str, values: List[str]) -> None:
+    for value in values:
+        trimmed = value.strip()
+        if trimmed:
+            _append_unique_metric_value(run, key, trimmed)
+
+
 async def _execute_single_step(run: AgentRun, step: AgentStep, force_continue: bool) -> Tuple[AgentStep, bool]:
     started = perf_counter()
     now = datetime.utcnow()
@@ -225,6 +232,26 @@ async def _execute_single_step(run: AgentRun, step: AgentStep, force_continue: b
                         **_coerce_dict(result),
                         "determinism": _coerce_dict(det_result),
                     }
+
+        if step.tool_name == "predict_entities":
+            predictions = _coerce_dict(result).get("predictions")
+            if isinstance(predictions, list):
+                affected_entity_ids = [
+                    str(item.get("entity_id", "")).strip()
+                    for item in predictions
+                    if isinstance(item, dict) and str(item.get("entity_id", "")).strip()
+                ]
+                _append_unique_metric_values(run, "affected_entity_ids", affected_entity_ids)
+
+        if step.tool_name == "query_entities":
+            query_results = _coerce_dict(result).get("results")
+            if isinstance(query_results, list):
+                affected_entity_ids = [
+                    str(item.get("entity_id", "")).strip()
+                    for item in query_results
+                    if isinstance(item, dict) and str(item.get("entity_id", "")).strip()
+                ]
+                _append_unique_metric_values(run, "affected_entity_ids", affected_entity_ids)
 
         step.status = "success"
         step.output = result

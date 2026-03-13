@@ -445,3 +445,119 @@ def test_agent_train_step_fails_when_determinism_verification_fails(monkeypatch:
     payload = execute_response.json()
     assert payload["status"] == "failed"
     assert "Determinism verification failed" in (payload["error_message"] or "")
+
+
+@pytest.mark.integration
+@pytest.mark.api
+def test_agent_predict_step_records_affected_entity_ids(monkeypatch: pytest.MonkeyPatch) -> None:
+    get_settings.cache_clear()
+    os.environ["AGENT_ENABLED"] = "true"
+    os.environ["AGENT_REQUIRE_APPROVAL"] = "false"
+
+    async def _fake_predict_tool(arguments: dict[str, object]) -> dict[str, object]:
+        return {
+            "run_id": "run_predict_attribution_seed",
+            "prediction_count": 2,
+            "predictions": [
+                {"entity_id": "ent_001", "probability": 0.9},
+                {"entity_id": "ent_002", "probability": 0.7},
+            ],
+        }
+
+    spec = AGENT_TOOL_REGISTRY["predict_entities"]
+    monkeypatch.setitem(
+        AGENT_TOOL_REGISTRY,
+        "predict_entities",
+        AgentToolSpec(
+            name=spec.name,
+            description=spec.description,
+            deterministic_safe=spec.deterministic_safe,
+            idempotent=spec.idempotent,
+            executor=_fake_predict_tool,
+        ),
+    )
+
+    client = TestClient(app)
+    create_response = client.post(
+        "/agents/runs",
+        json={
+            "goal": "Score these entities",
+            "context": {"entity_ids": ["ent_001", "ent_002"]},
+        },
+    )
+    assert create_response.status_code == 200
+    run_id = create_response.json()["agent_run_id"]
+
+    execute_response = client.post(
+        f"/agents/runs/{run_id}/steps/0/execute",
+        json={"force_continue": False},
+    )
+    assert execute_response.status_code == 200
+    assert execute_response.json()["status"] == "success"
+
+    with session_scope() as session:
+        agent_run = session.get(AgentRun, run_id)
+        assert agent_run is not None
+        metrics = agent_run.metrics if isinstance(agent_run.metrics, dict) else {}
+        affected = list(metrics.get("affected_entity_ids", []))
+        assert "ent_001" in affected
+        assert "ent_002" in affected
+
+
+@pytest.mark.integration
+@pytest.mark.api
+def test_agent_query_step_records_affected_entity_ids(monkeypatch: pytest.MonkeyPatch) -> None:
+    get_settings.cache_clear()
+    os.environ["AGENT_ENABLED"] = "true"
+    os.environ["AGENT_REQUIRE_APPROVAL"] = "false"
+
+    async def _fake_query_tool(arguments: dict[str, object]) -> dict[str, object]:
+        return {
+            "run_id": "run_query_attribution_seed",
+            "query": "likely risk entities",
+            "interpreted_as": "risk lookup",
+            "llm_used": False,
+            "results": [
+                {"entity_id": "ent_101", "probability": 0.8},
+                {"entity_id": "ent_102", "probability": 0.6},
+            ],
+        }
+
+    spec = AGENT_TOOL_REGISTRY["query_entities"]
+    monkeypatch.setitem(
+        AGENT_TOOL_REGISTRY,
+        "query_entities",
+        AgentToolSpec(
+            name=spec.name,
+            description=spec.description,
+            deterministic_safe=spec.deterministic_safe,
+            idempotent=spec.idempotent,
+            executor=_fake_query_tool,
+        ),
+    )
+
+    client = TestClient(app)
+    create_response = client.post(
+        "/agents/runs",
+        json={
+            "goal": "Search likely risk entities",
+            "context": {"query": "likely risk entities"},
+        },
+    )
+    assert create_response.status_code == 200
+    run_id = create_response.json()["agent_run_id"]
+
+    execute_response = client.post(
+        f"/agents/runs/{run_id}/steps/0/execute",
+        json={"force_continue": False},
+    )
+    assert execute_response.status_code == 200
+    assert execute_response.json()["status"] == "success"
+
+    with session_scope() as session:
+        agent_run = session.get(AgentRun, run_id)
+        assert agent_run is not None
+        metrics = agent_run.metrics if isinstance(agent_run.metrics, dict) else {}
+        affected = list(metrics.get("affected_entity_ids", []))
+        assert "ent_101" in affected
+        assert "ent_102" in affected
