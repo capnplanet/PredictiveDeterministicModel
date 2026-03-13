@@ -237,3 +237,18 @@ class AgentAuditEventResponse(BaseModel):
     event_type: str
     actor: str
     details: Dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentApprovalSummaryResponse(BaseModel):
+    total_runs: int
+    approval_required_runs: int
+    approved_runs: int
+    rejected_runs: int
+    pending_approval_runs: int
+    approval_rate: float
+
+
+class AgentDeterminismAuditResponse(BaseModel):
+    total_runs: int
+    deterministic_failures: int
+    failing_run_ids: List[str] = Field(default_factory=list)

@@ -10,8 +10,10 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
 from app.api.schemas import (
+    AgentApprovalSummaryResponse,
     AgentAuditEventResponse,
     AgentControlRequest,
+    AgentDeterminismAuditResponse,
     AgentGoalRequest,
     AgentPlanApprovalRequest,
     AgentPlanResponse,
@@ -699,3 +701,57 @@ async def list_agent_run_audit_events(agent_run_id: str) -> List[AgentAuditEvent
             )
             for event in events
         ]
+
+
+@router.get("/compliance/approval-summary", response_model=AgentApprovalSummaryResponse)
+async def get_agent_approval_summary() -> AgentApprovalSummaryResponse:
+    with session_scope() as session:
+        runs = list(session.execute(select(AgentRun)).scalars().all())
+
+        total_runs = len(runs)
+        approval_required_runs = sum(1 for run in runs if bool(run.require_approval))
+        pending_approval_runs = sum(1 for run in runs if str(run.status) == "awaiting_approval")
+
+        reviewed_events = list(
+            session.execute(
+                select(AgentAuditEvent).where(AgentAuditEvent.event_type == "plan_reviewed")
+            ).scalars().all()
+        )
+        approved_runs = 0
+        rejected_runs = 0
+        for event in reviewed_events:
+            details = _coerce_dict(event.details)
+            if bool(details.get("approved", False)):
+                approved_runs += 1
+            else:
+                rejected_runs += 1
+
+        approval_rate = 0.0
+        reviewed_total = approved_runs + rejected_runs
+        if reviewed_total > 0:
+            approval_rate = approved_runs / reviewed_total
+
+        return AgentApprovalSummaryResponse(
+            total_runs=total_runs,
+            approval_required_runs=approval_required_runs,
+            approved_runs=approved_runs,
+            rejected_runs=rejected_runs,
+            pending_approval_runs=pending_approval_runs,
+            approval_rate=approval_rate,
+        )
+
+
+@router.get("/compliance/determinism-audit", response_model=AgentDeterminismAuditResponse)
+async def get_agent_determinism_audit() -> AgentDeterminismAuditResponse:
+    with session_scope() as session:
+        runs = list(session.execute(select(AgentRun)).scalars().all())
+        failing_run_ids = [
+            run.agent_run_id
+            for run in runs
+            if isinstance(run.last_error, str) and "Determinism verification failed" in run.last_error
+        ]
+        return AgentDeterminismAuditResponse(
+            total_runs=len(runs),
+            deterministic_failures=len(failing_run_ids),
+            failing_run_ids=failing_run_ids,
+        )
