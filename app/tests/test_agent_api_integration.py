@@ -561,3 +561,107 @@ def test_agent_query_step_records_affected_entity_ids(monkeypatch: pytest.Monkey
         affected = list(metrics.get("affected_entity_ids", []))
         assert "ent_101" in affected
         assert "ent_102" in affected
+
+
+@pytest.mark.integration
+@pytest.mark.api
+def test_agent_compliance_approval_summary_endpoint() -> None:
+    get_settings.cache_clear()
+    os.environ["AGENT_ENABLED"] = "true"
+    os.environ["AGENT_REQUIRE_APPROVAL"] = "true"
+
+    client = TestClient(app)
+
+    approved_run = client.post(
+        "/agents/runs",
+        json={"goal": "Search likely risk entities", "context": {"query": "likely risk entities"}},
+    )
+    assert approved_run.status_code == 200
+    approved_run_id = approved_run.json()["agent_run_id"]
+    approve_resp = client.post(
+        f"/agents/runs/{approved_run_id}/approve",
+        json={"approved": True, "reviewer_notes": "approved"},
+    )
+    assert approve_resp.status_code == 200
+
+    rejected_run = client.post(
+        "/agents/runs",
+        json={"goal": "Search likely risk entities", "context": {"query": "likely risk entities"}},
+    )
+    assert rejected_run.status_code == 200
+    rejected_run_id = rejected_run.json()["agent_run_id"]
+    reject_resp = client.post(
+        f"/agents/runs/{rejected_run_id}/approve",
+        json={"approved": False, "reviewer_notes": "rejected"},
+    )
+    assert reject_resp.status_code == 200
+
+    summary_resp = client.get("/agents/compliance/approval-summary")
+    assert summary_resp.status_code == 200
+    summary = summary_resp.json()
+    assert summary["total_runs"] >= 2
+    assert summary["approval_required_runs"] >= 2
+    assert summary["approved_runs"] >= 1
+    assert summary["rejected_runs"] >= 1
+    assert 0.0 <= float(summary["approval_rate"]) <= 1.0
+
+
+@pytest.mark.integration
+@pytest.mark.api
+def test_agent_compliance_determinism_audit_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    get_settings.cache_clear()
+    os.environ["AGENT_ENABLED"] = "true"
+    os.environ["AGENT_REQUIRE_APPROVAL"] = "false"
+    os.environ["AGENT_ENFORCE_DETERMINISM"] = "true"
+
+    async def _fake_train_tool(arguments: dict[str, object]) -> dict[str, object]:
+        return {"run_id": "run_det_fail_audit_seed", "metrics": {"ok": 1.0}}
+
+    async def _failing_det_tool(arguments: dict[str, object]) -> dict[str, object]:
+        raise RuntimeError("Determinism verification failed for run run_det_fail_audit_seed")
+
+    train_spec = AGENT_TOOL_REGISTRY["train_model"]
+    det_spec = AGENT_TOOL_REGISTRY["verify_run_determinism"]
+    monkeypatch.setitem(
+        AGENT_TOOL_REGISTRY,
+        "train_model",
+        AgentToolSpec(
+            name=train_spec.name,
+            description=train_spec.description,
+            deterministic_safe=train_spec.deterministic_safe,
+            idempotent=train_spec.idempotent,
+            executor=_fake_train_tool,
+        ),
+    )
+    monkeypatch.setitem(
+        AGENT_TOOL_REGISTRY,
+        "verify_run_determinism",
+        AgentToolSpec(
+            name=det_spec.name,
+            description=det_spec.description,
+            deterministic_safe=det_spec.deterministic_safe,
+            idempotent=det_spec.idempotent,
+            executor=_failing_det_tool,
+        ),
+    )
+
+    client = TestClient(app)
+    create_response = client.post(
+        "/agents/runs",
+        json={"goal": "Train refreshed model", "context": {}},
+    )
+    assert create_response.status_code == 200
+    run_id = create_response.json()["agent_run_id"]
+
+    execute_response = client.post(
+        f"/agents/runs/{run_id}/steps/0/execute",
+        json={"force_continue": False},
+    )
+    assert execute_response.status_code == 200
+    assert execute_response.json()["status"] == "failed"
+
+    audit_resp = client.get("/agents/compliance/determinism-audit")
+    assert audit_resp.status_code == 200
+    audit = audit_resp.json()
+    assert audit["deterministic_failures"] >= 1
+    assert run_id in audit["failing_run_ids"]
