@@ -177,6 +177,16 @@ def _next_pending_step(steps: List[AgentStep]) -> AgentStep | None:
     return None
 
 
+def _append_unique_metric_value(run: AgentRun, key: str, value: str) -> None:
+    metrics = _coerce_dict(run.metrics)
+    current = metrics.get(key)
+    values = [str(v) for v in current] if isinstance(current, list) else []
+    if value not in values:
+        values.append(value)
+    metrics[key] = values
+    run.metrics = metrics
+
+
 async def _execute_single_step(run: AgentRun, step: AgentStep, force_continue: bool) -> Tuple[AgentStep, bool]:
     started = perf_counter()
     now = datetime.utcnow()
@@ -195,6 +205,27 @@ async def _execute_single_step(run: AgentRun, step: AgentStep, force_continue: b
             _invoke_tool(step.tool_name, step_arguments),
             timeout=timeout_seconds,
         )
+
+        if step.tool_name == "train_model":
+            run_id_value = str(_coerce_dict(result).get("run_id", "")).strip()
+            if run_id_value:
+                _append_unique_metric_value(run, "affected_run_ids", run_id_value)
+                if bool(get_settings().agent_enforce_determinism):
+                    det_result = await asyncio.wait_for(
+                        _invoke_tool(
+                            "verify_run_determinism",
+                            {
+                                "run_id": run_id_value,
+                                "agent_run_id": run.agent_run_id,
+                            },
+                        ),
+                        timeout=timeout_seconds,
+                    )
+                    result = {
+                        **_coerce_dict(result),
+                        "determinism": _coerce_dict(det_result),
+                    }
+
         step.status = "success"
         step.output = result
         step.error_message = None
