@@ -1,0 +1,184 @@
+Deterministic High-Volume MLOps Implementation Plan
+Date: 2026-03-14
+Scope: High-volume production MLOps while maintaining strict determinism
+Determinism contract: Bit-exact within a pinned runtime (same OS, container image, hardware class)
+Topology target: Single-node CPU scale-up first
+Orchestration target: Celery + Redis + Postgres
+
+====================================================================
+1) Objectives
+====================================================================
+- Preserve strict deterministic behavior for training and inference under production load.
+- Move long-running workload off synchronous API paths.
+- Increase throughput via queue-backed workers and workload partitioning.
+- Add production observability, retry safety, and release gates that enforce determinism.
+
+Out of scope for this phase:
+- Multi-node distributed training.
+- Cross-hardware bit-exact reproducibility.
+
+====================================================================
+2) Phase Roadmap
+====================================================================
+
+Phase 1: Determinism Hardening Baseline (blocking)
+- Add explicit ordering to all training-critical DB reads.
+- Remove implicit iteration-order assumptions in in-memory aggregations.
+- Enforce deterministic tie-breakers in ranking and run-selection paths.
+- Make run persistence failure-safe with explicit state transitions.
+- Add deterministic-safe artifact feature claim/order handling.
+- Expand determinism tests for ordering/race/repro cases.
+
+Phase 2: Async Orchestration Foundation
+- Introduce Celery + Redis execution for training and feature extraction.
+- Keep sync APIs for compatibility; add async enqueue/status endpoints.
+- Add task lifecycle tracking and run-task linkage.
+- Add idempotency keys for enqueue endpoints.
+- Split queues by workload class (training, extraction, batch inference).
+
+Phase 3: Dataflow and Storage Scale-up
+- Convert ingestion and extraction to chunked/batched processing.
+- Add deterministic checkpoint/resume behavior.
+- Add DB indexes aligned to deterministic order-by paths and high-volume filters.
+- Strengthen feature-cache version pinning and invalidation policy.
+
+Phase 4: Operations and Governance
+- Add queue and worker health metrics, backlog depth, latency, and saturation telemetry.
+- Add structured logs with correlation IDs from request -> task -> run.
+- Add CI release gate: determinism parity + integration + performance smoke.
+- Add deterministic incident runbooks and replay workflow.
+
+Phase 5: Controlled Cutover
+- Canary route a subset of heavy jobs to async workers.
+- Compare parity and throughput against sync baseline.
+- Gradually ramp queue traffic by workload class.
+- Decommission synchronous heavy-job path after sustained SLO + parity success.
+
+====================================================================
+3) Workstream Breakdown
+====================================================================
+
+A. Deterministic Data Access
+- Enforce stable query ordering for entities/events/interactions/artifacts.
+- Ensure deterministic ordering in latest model-run selection.
+- Add stable tie-break ordering in score sorting and ranking output.
+
+B. Deterministic Aggregation and Feature Assembly
+- Replace dictionary-iteration dependent loops with sorted key traversal.
+- Ensure deterministic event ordering using timestamp + stable ID tie-breakers.
+- Ensure deterministic artifact vector aggregation order.
+
+C. Persistence Correctness
+- Use explicit run lifecycle states (pending, success, failed).
+- Ensure DB state and filesystem artifacts cannot silently diverge.
+- Define cleanup/recovery behavior for partial failures.
+
+D. Queue-backed Execution
+- Add Celery workers and Redis broker.
+- Add enqueue + status APIs.
+- Add task metadata, retries, and idempotency controls.
+- Separate queue classes for predictable throughput and isolation.
+
+E. Throughput and Capacity Controls
+- Configure worker concurrency per queue.
+- Add backpressure thresholds and queue depth alarms.
+- Add bounded retries and dead-letter handling policy.
+
+F. Deterministic Release Governance
+- Gate promotions on deterministic parity suite.
+- Verify model hash/metrics parity under pinned runtime.
+- Block release if parity or ordering invariants fail.
+
+====================================================================
+4) File-Level Implementation Targets
+====================================================================
+- app/training/train.py
+  Deterministic ordering for reads and aggregation, run-state persistence transitions.
+- app/training/model.py
+  Stable tie-handling and deterministic ranking/loss-sensitive ordering checks.
+- app/services/feature_extraction.py
+  Deterministic pending selection order and worker-safe claim behavior.
+- app/services/csv_ingestion.py
+  Chunked deterministic ingest and checkpointing support.
+- app/services/artifact_ingestion.py
+  Race-safe content-addressed write/claim behavior.
+- app/api/routes/train.py
+  Async enqueue/status API additions with compatibility mode.
+- app/api/routes/predict.py
+  Stable latest-run and deterministic sort/tie-break behavior for outputs.
+- app/api/routes/agent.py
+  Queue-aware execution path for heavy actions.
+- app/services/agent_tools.py
+  Tool dispatch alignment with async orchestration and idempotency.
+- app/db/models.py
+  Task/run metadata support and index additions.
+- app/db/session.py
+  Transaction boundary refinements for reliability at volume.
+- app/core/config.py
+  Runtime pinning settings, queue/retry/concurrency controls.
+- app/core/performance.py
+  Queue/worker observability extensions.
+- docker-compose.yml
+  Add Redis and worker services for local/prod-shape parity.
+- Dockerfile.backend
+  Preserve deterministic runtime pinning for all worker/runtime processes.
+- app/tests/test_determinism_check.py
+  Extend parity assertions for async execution path.
+- app/tests/test_training_splits.py
+  Extend ordering invariants.
+- app/tests/test_training_modalities_integration.py
+  Validate deterministic modality assembly under ordered reads.
+- app/tests/test_agent_api_integration.py
+  Validate orchestration behavior with deterministic failure handling.
+
+====================================================================
+5) Verification Matrix
+====================================================================
+Determinism parity
+- Same data + same config + same pinned runtime => same run_id, model hash, metrics, and deterministic prediction subset.
+
+Ordering invariants
+- Repeated execution under load keeps stable entity/event/interaction/artifact ordering behavior.
+
+Queue correctness
+- Duplicate enqueue with same idempotency key results in one effective execution.
+
+Failure atomicity
+- Crash between artifact persistence and DB update leaves recoverable/non-ambiguous run state.
+
+Retry determinism
+- Transient retry does not alter output for identical canonical payload.
+
+Throughput SLO
+- Backlog drains within target windows while preserving determinism checks.
+
+====================================================================
+6) Milestones and Exit Criteria
+====================================================================
+M1 (Phase 1 complete)
+- Determinism tests pass for ordering and parity.
+- No nondeterministic training-critical query path remains.
+
+M2 (Phase 2 complete)
+- Async training/extraction available and stable.
+- Task lifecycle and idempotency operational.
+
+M3 (Phase 3 complete)
+- High-volume ingest/extract path supports chunking/checkpointing.
+- Indexes and cache policy validated at load.
+
+M4 (Phase 4 complete)
+- CI release gate enforces deterministic parity.
+- Monitoring and alerting active for queue/workers.
+
+M5 (Phase 5 complete)
+- Canary and ramp complete with maintained parity and improved throughput.
+- Synchronous heavy-job path retired.
+
+====================================================================
+7) Immediate Next Implementation Slice
+====================================================================
+- Finish all Phase 1 deterministic ordering fixes.
+- Add/adjust tests that assert ordering and parity behavior.
+- Add a deterministic run-state transition model for persistence safety.
+- Re-run targeted deterministic suite in pinned runtime and baseline throughput smoke tests.
