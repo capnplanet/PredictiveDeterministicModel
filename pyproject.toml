@@ -15,12 +15,19 @@ module = [
 	"app.api.routes.agent",
 	"app.api.routes.predict",
 	"app.api.routes.train",
+	"app.api.routes.features",
+	"app.api.routes.health",
 	"app.services.feature_extraction",
+	"app.services.feature_tasks",
+	"app.services.training_tasks",
+	"app.services.batch_inference_tasks",
 	"app.training.train",
 	"app.training.synth_data",
 	"app.ml.image_features",
 	"app.ml.feature_version",
 	"app.tests.test_agent_api_integration",
+	"app.tests.test_api_endpoints_integration",
+	"app.tests.test_ingestion_checkpointing",
 ]
 ignore_errors = true
 
