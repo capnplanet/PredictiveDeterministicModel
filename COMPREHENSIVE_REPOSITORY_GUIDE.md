@@ -35,8 +35,16 @@ The **Deterministic Multimodal Analytics Stack** is a production-ready, full-sta
 The repository currently includes the following production-facing capabilities:
 
 - End-to-end ingestion for entities, events, interactions, artifact manifests, and single artifact uploads
+- Chunked ingestion with deterministic checkpoint/resume controls
 - Demo preload route (`POST /demo/preload`) that can bootstrap data, feature extraction, and starter training
+- Feature cache version pinning and invalidation to prevent stale feature reuse
 - Deterministic multi-head prediction (`/predict`) with regression, probability, and ranking outputs
+- Async orchestration endpoints:
+  - `POST /train/async`, `GET /train/async/{task_id}`
+  - `POST /features/extract/async`, `GET /features/extract/async/{task_id}`
+  - `POST /predict/async`, `GET /predict/async/{task_id}`
+- Queue health endpoint (`GET /health/queues`) with broker status, backlog, latency-age, and saturation metrics
+- Correlation ID propagation (`x-correlation-id`) from API request to async task and telemetry events
 - Natural-language query route (`/query`) with intent-aware ranking:
   - relationship strength ordering
   - elevated-probability intent handling
@@ -47,6 +55,7 @@ The repository currently includes the following production-facing capabilities:
 - Active CI workflow gates:
   - Backend CI
   - Determinism Matrix CI
+  - Phase 4 Release Gate
   - E2E CI
   - Frontend CI
 
@@ -170,18 +179,23 @@ Imagine you're a detective solving a case:
 │  └──────────────┬───────────────────────────────────────┘  │
 │                 │                                            │
 │  ┌──────────────▼──────────────┬──────────────────────┐   │
-│  │       Services              │   ML Pipeline        │   │
+│  │       Services              │   ML + Async Pipeline│   │
 │  │  • CSV Ingestion            │  • Feature Extract   │   │
 │  │  • Artifact Management      │  • Model Training    │   │
 │  │  • Feature Extraction       │  • Prediction        │   │
 │  │  • Parquet Export           │  • Explainability    │   │
+│  │  • Queue Health             │  • Task Lifecycle    │   │
 │  └──────────────┬──────────────┴──────────────────────┘   │
+│                 │                                            │
+│  Redis + Celery Broker/Worker (training, extraction, batch inference queues) │
 └─────────────────┼───────────────────────────────────────────┘
                   │
 ┌─────────────────▼───────────────────────────────────────────┐
 │                  DATABASE (PostgreSQL 16)                   │
 │  ┌──────────┬─────────┬──────────────┬──────────┬────────┐│
 │  │ entities │ events  │ interactions │ artifacts│ runs   ││
+│  │ training_tasks │ feature_extraction_tasks │ batch_inference_tasks │
+│  │ agent_runs │ agent_steps │ agent_audit_events │
 │  └──────────┴─────────┴──────────────┴──────────┴────────┘│
 └─────────────────────────────────────────────────────────────┘
 
@@ -199,6 +213,7 @@ Imagine you're a detective solving a case:
 ```
 CSV Files → Parse & Validate → Database (entities/events/interactions)
 Media Files → Compute SHA256 → Store in artifacts_store/ → Database (artifacts)
+Checkpoint File → Resume ingest from last processed row (optional)
 ```
 
 **Phase 2: Feature Extraction**
@@ -300,6 +315,7 @@ Input Data:
 - Foreign key validation (events must reference valid entities)
 - Duplicate detection (SHA256-based for artifacts)
 - Size limits and error reporting
+- Chunk size controls and deterministic checkpoint/resume for high-volume loads
 
 **API Endpoints**:
 ```
@@ -331,6 +347,7 @@ POST /ingest/artifact (single file)
 - Same file + same feature extraction version = identical features
 - Version hash includes: code hash + config + library versions
 - Cached in `.npy` files for fast re-access
+- Cache reuse only when `feature_version_hash` matches current extractor version
 
 **API Endpoint**:
 ```
@@ -356,6 +373,24 @@ POST /features/extract
 - Deterministic algorithms only (`torch.use_deterministic_algorithms(True)`)
 - GPU disabled (CPU-only for full reproducibility)
 - Reproducible run IDs: `SHA256(config + data_manifest + feature_version)`
+- Explicit run lifecycle transitions: `pending -> success` or `pending -> failed`
+- Persistence failure safety so filesystem/database divergence is recoverable and explicit
+
+### 3.1 Async Orchestration and Queue Controls
+
+The stack now supports queue-backed execution for long-running workflows:
+
+- Training async enqueue and status APIs
+- Feature extraction async enqueue and status APIs
+- Batch inference async enqueue and status APIs
+- Idempotency keys to prevent duplicate effective executions
+- Queue isolation by workload class (`training`, `extraction`, `batch_inference`)
+
+Queue operations telemetry is exposed via `GET /health/queues` and includes:
+
+- backlog depth
+- oldest pending age
+- queue saturation ratio and configured max concurrency
 
 **Training metrics**:
 - **Regression**: MAE, RMSE, R²

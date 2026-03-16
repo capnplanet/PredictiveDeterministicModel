@@ -7,9 +7,10 @@ This guide provides reproducible corpus-based validation for predictive analytic
 This validation guide aligns with the current repository capabilities:
 
 - Deterministic model training and inference
+- Async orchestration validation for training, extraction, and batch inference
 - Query endpoint validation (`/query`) with intent-aware ordering
 - Optional LLM augmentation checks for interpretation and narratives
-- CI validation via Backend CI, Determinism Matrix CI, and E2E CI
+- CI validation via Backend CI, Determinism Matrix CI, Phase 4 Release Gate, and E2E CI (path-triggered)
 - Telemetry aggregation using `performance-report`
 
 ## Goals
@@ -116,7 +117,28 @@ Recommended acceptance targets:
 - Keep synthetic determinism checks as required PR gates.
 - Run public corpus validations on a nightly schedule to avoid long PR feedback loops.
 - Store threshold expectations in versioned config reviewed in pull requests.
-- Ensure `Backend CI`, `Determinism Matrix CI`, and `E2E CI` all pass before promoting corpus or threshold updates.
+- Ensure `Backend CI`, `Determinism Matrix CI`, and `Phase 4 Release Gate` pass before promoting corpus or threshold updates.
+- Trigger `E2E CI` with frontend or compose-path changes, or manually when API-to-UI behavior changed.
+
+## Async Queue Validation (Recommended)
+
+After baseline corpus ingestion/training, validate queue-backed execution semantics:
+
+```bash
+curl -sS -X POST http://localhost:8000/train/async \
+	-H "Content-Type: application/json" \
+	-H "x-correlation-id: corpus-val-async-001" \
+	-d '{"idempotency_key":"corpus-train-async-001","config":{"epochs":1,"batch_size":8}}'
+
+curl -sS http://localhost:8000/health/queues
+```
+
+Validation checks:
+
+- Task status transitions follow `pending -> running -> success|failed`.
+- Duplicate enqueue with same idempotency key reuses the same task.
+- Queue telemetry includes backlog, oldest pending age, and saturation ratio per queue.
+- Correlation ID appears in task payload and telemetry events for traceability.
 
 ## Query Validation (Recommended)
 
@@ -144,6 +166,13 @@ PYTHONPATH=. python -m app.cli performance-report
 ```
 
 Review report fields for p50/p95 latency, event counts, and error rates before signing off.
+
+Also verify queue and async event coverage in telemetry:
+
+- `training.async.enqueued|success|failed`
+- `features.async.enqueued|success|failed`
+- `predict.async.enqueued|success|failed`
+- `health.queues`
 
 ## Troubleshooting
 

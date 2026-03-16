@@ -18,18 +18,21 @@ A production-ready machine learning platform that:
 ```bash
 git clone https://github.com/capnplanet/PredictiveDeterministicModel.git
 cd PredictiveDeterministicModel
-docker-compose up -d
+docker compose up -d
 ```
 
 **Services Started:**
 - 🔷 PostgreSQL Database (port 5432)
+- 🔶 Redis Broker (port 6379)
 - 🔶 FastAPI Backend (port 8000)
+- 🔷 Celery Worker (queue execution)
 - 🔷 React Frontend (port 5173)
 
 ### 2. Verify Health
 ```bash
-curl http://localhost:8000/health
-# Should return: {"status":"ok"}
+curl http://localhost:8000/health/
+curl http://localhost:8000/health/queues
+# Should return broker and per-queue health telemetry
 ```
 
 ### 3. View the UI
@@ -38,7 +41,7 @@ Open browser: `http://localhost:5173`
 ### 4. Run Complete Demo Workflow
 ```bash
 # Generate synthetic demo data
-docker-compose exec backend python -m app.training.synth_data
+docker compose exec backend python -m app.training.synth_data
 
 # Extract features from artifacts
 curl -X POST http://localhost:8000/features/extract
@@ -50,6 +53,12 @@ curl -X POST http://localhost:8000/train
 curl -X POST http://localhost:8000/predict \
   -H "Content-Type: application/json" \
   -d '{"entity_ids": ["ent_000", "ent_001"], "explanations": true}'
+
+# Optional async training enqueue
+curl -X POST http://localhost:8000/train/async \
+  -H "Content-Type: application/json" \
+  -H "x-correlation-id: quickstart-async-001" \
+  -d '{"idempotency_key":"quickstart-train-001","config":{"epochs":1,"batch_size":8}}'
 ```
 
 ---
@@ -91,6 +100,13 @@ curl -X POST http://localhost:8000/predict \
 # Upload entities CSV
 curl -X POST http://localhost:8000/ingest/entities -F "file=@entities.csv"
 
+# Upload entities with deterministic checkpoint/resume controls
+curl -X POST http://localhost:8000/ingest/entities \
+  -F "file=@entities.csv" \
+  -F "chunk_size=1000" \
+  -F "checkpoint_key=quickstart-entities-001" \
+  -F "resume_from_checkpoint=true"
+
 # Upload events CSV
 curl -X POST http://localhost:8000/ingest/events -F "file=@events.csv"
 
@@ -107,6 +123,11 @@ curl -X POST http://localhost:8000/ingest/artifact \
 ### Extract Features
 ```bash
 curl -X POST http://localhost:8000/features/extract
+
+# Async extraction
+curl -X POST http://localhost:8000/features/extract/async \
+  -H "Content-Type: application/json" \
+  -d '{"idempotency_key":"quickstart-extract-001"}'
 ```
 
 ### Train Model
@@ -118,10 +139,19 @@ curl -X POST http://localhost:8000/train
 curl -X POST http://localhost:8000/train \
   -H "Content-Type: application/json" \
   -d '{
-    "epochs": 50,
-    "batch_size": 16,
-    "learning_rate": 0.001
+    "config": {
+      "epochs": 50,
+      "batch_size": 16,
+      "lr": 0.001
+    }
   }'
+
+# Async enqueue + status
+curl -X POST http://localhost:8000/train/async \
+  -H "Content-Type: application/json" \
+  -d '{"idempotency_key":"quickstart-train-async-001","config":{"epochs":1}}'
+
+curl http://localhost:8000/train/async/<task_id>
 ```
 
 ### List Training Runs
@@ -152,6 +182,13 @@ curl -X POST http://localhost:8000/query \
     "query": "show entities with strongest relationship signals",
     "limit": 5
   }'
+
+# Async batch prediction
+curl -X POST http://localhost:8000/predict/async \
+  -H "Content-Type: application/json" \
+  -d '{"entity_ids":["ent_001","ent_002"],"idempotency_key":"quickstart-predict-001"}'
+
+curl http://localhost:8000/predict/async/<task_id>
 ```
 
 ---
@@ -274,8 +311,8 @@ app.post('/check-fraud', async (req, res) => {
 ### Issue: "Database connection failed"
 **Solution**: Ensure PostgreSQL container is running
 ```bash
-docker-compose ps
-docker-compose up -d db
+docker compose ps
+docker compose up -d db
 ```
 
 ### Issue: "Model not found"
@@ -293,8 +330,16 @@ curl -X POST http://localhost:8000/features/extract
 ### Issue: "Port already in use"
 **Solution**: Change ports in docker-compose.yml or stop conflicting services
 ```bash
-docker-compose down
+docker compose down
 sudo lsof -i :8000  # Find what's using port 8000
+```
+
+### Issue: "Async task stuck pending"
+**Solution**: Verify Redis and worker are up, then inspect queue telemetry
+```bash
+docker compose ps
+curl http://localhost:8000/health/queues
+docker compose logs -f worker
 ```
 
 ---
@@ -338,8 +383,12 @@ CUBLAS_WORKSPACE_CONFIG=:4096:8
 ## Key Features Summary
 
 ✅ **Deterministic Training** - Bit-exact reproducibility  
+✅ **Explicit Run Lifecycle** - Pending/success/failed state safety  
 ✅ **Multi-Task Learning** - Regression + Classification + Ranking  
 ✅ **Multimodal Support** - Images + Audio + Video + Tabular data  
+✅ **Async Orchestration** - Queue-backed train/extract/predict APIs  
+✅ **Queue Health Telemetry** - Backlog and saturation visibility  
+✅ **Checkpoint/Resume Ingestion** - High-volume deterministic restarts  
 ✅ **Built-in Explainability** - Understand every prediction  
 ✅ **Enterprise Ready** - Docker, REST APIs, audit trails  
 ✅ **Compliance Focused** - GDPR, HIPAA, SOC 2 compatible  

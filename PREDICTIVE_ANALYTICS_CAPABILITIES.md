@@ -16,13 +16,16 @@ This guide is for engineers, analysts, product teams, and compliance reviewers w
 The repository provides a full predictive analytics platform with these major capabilities:
 
 - Data ingestion for structured records and media artifacts
+- High-volume chunked ingestion with checkpoint/resume support
 - Feature extraction from image, audio, and video files
 - Deterministic model training for repeatable outcomes
+- Async queue-backed execution for training, extraction, and batch inference
 - Multi-task prediction per entity (regression, probability, and ranking)
 - Explainability outputs that describe why a prediction was made
 - Natural-language query over predictions with intent-aware ranking
 - Agent-driven analytics workflows with approval, audit, and determinism gates
-- Structured performance telemetry and CI reproducibility checks
+- Queue/worker health telemetry plus structured performance reporting
+- CI reproducibility and release-gate checks
 
 In plain terms: you can load data, train a model, score entities, ask questions in natural language, and trace how and why results were produced.
 
@@ -52,6 +55,24 @@ Why this matters:
 
 - Predictive models are only as useful as the data graph they can learn from.
 - The entity event interaction structure gives the model both history and context.
+
+### 1.1) Chunked Ingestion and Checkpoint Resume
+
+What it does:
+
+- Supports configurable chunk-size processing for large CSV/manifest loads.
+- Persists checkpoint progress so interrupted ingest can resume deterministically.
+- Exposes checkpoint controls through ingest API form fields.
+
+Jargon explained:
+
+- Chunking: processing data in smaller batches instead of one giant transaction.
+- Checkpoint resume: continuing from the last confirmed processed row after interruption.
+
+Why this matters:
+
+- Improves throughput and reliability for high-volume datasets.
+- Avoids restart-from-zero behavior after failures.
 
 ### 2) Artifact Ingestion and Multimodal Support
 
@@ -287,11 +308,38 @@ Why this matters:
 - Detects hidden nondeterminism early.
 - Supports CI gating and compliance evidence.
 
-### 11) Telemetry and Operational Observability
+### 11) Async Orchestration and Queue Health
+
+What it does:
+
+- Enqueues long-running operations and tracks lifecycle status through task APIs.
+- Isolates workload classes in separate queues (`training`, `extraction`, `batch_inference`).
+- Provides queue health endpoint coverage with backlog, pending age, and saturation metadata.
+
+Where in API:
+
+- POST /train/async, GET /train/async/{task_id}
+- POST /features/extract/async, GET /features/extract/async/{task_id}
+- POST /predict/async, GET /predict/async/{task_id}
+- GET /health/queues
+
+Jargon explained:
+
+- Queue backlog: pending + running work waiting to drain.
+- Saturation: how close current running workload is to configured worker capacity.
+- Idempotency key: stable client key that prevents duplicate effective execution.
+
+Why this matters:
+
+- Keeps heavy jobs off synchronous request paths.
+- Improves system responsiveness under load while preserving deterministic controls.
+
+### 12) Telemetry and Operational Observability
 
 What it does:
 
 - Emits structured timing and status events for ingestion, feature extraction, training, prediction, and determinism checks
+- Propagates correlation IDs from request to async task to telemetry event payloads
 - Stores events in JSON Lines format for post-run reporting
 - Supports performance report generation from telemetry logs
 
@@ -326,6 +374,8 @@ Compared with many analytics repositories, this one combines:
 - Multimodal ingestion and feature extraction
 - Multi-head predictive outputs in one pipeline
 - Deterministic training and reproducibility checks as first-class features
+- Queue-backed heavy workload orchestration with lifecycle and idempotency controls
+- Queue health and saturation telemetry for operations visibility
 - Explainability outputs integrated into prediction responses
 - Agentic workflows with approval, immutable audit events, and compliance summaries
 
@@ -355,6 +405,9 @@ Jargon explained:
 - Lineage: recorded chain of what created what (data, features, model run, agent run).
 - Audit trail: timestamped record of actions and decisions.
 - Threshold policy: minimum quality requirements for model metrics.
+- Backlog: count of queued/running work not yet complete.
+- Saturation ratio: running tasks divided by queue concurrency capacity.
+- Correlation ID: trace key linking one request across API, tasks, and telemetry.
 
 ## Suggested Next Documentation Additions
 

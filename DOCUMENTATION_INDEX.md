@@ -129,7 +129,23 @@ This repository now includes comprehensive documentation explaining the system, 
 
 ---
 
-### 5. [ARCHITECTURE_DIAGRAMS.md](ARCHITECTURE_DIAGRAMS.md) (27KB)
+### 5. [CORPUS_VALIDATION_GUIDE.md](CORPUS_VALIDATION_GUIDE.md)
+**Purpose**: Reproducible validation playbook for synthetic and public corpora under determinism constraints  
+**Best for**: ML engineers, QA, and release managers
+
+**Contents**:
+- Synthetic/public corpus preparation and ingestion validation
+- Determinism verification expectations
+- Async queue correctness checks
+- Telemetry and promotion validation guidance
+
+**Use when you need**:
+- A repeatable quality and determinism validation workflow
+- Corpus-specific acceptance criteria and release checks
+
+---
+
+### 6. [ARCHITECTURE_DIAGRAMS.md](ARCHITECTURE_DIAGRAMS.md) (27KB)
 **Purpose**: Visual reference for system architecture and data flows  
 **Best for**: Visual learners, system architects, and documentation teams
 
@@ -139,6 +155,8 @@ This repository now includes comprehensive documentation explaining the system, 
 - Multi-layer architecture diagram (UI → API → Services → Database → Storage)
 - Component interactions
 - Port assignments
+- Async orchestration topology (Redis + Celery worker queues)
+- Task lifecycle persistence and queue health telemetry placement
 
 #### Complete Data Flow Pipeline
 - Phase 1: Data Ingestion (CSV and media files)
@@ -163,6 +181,7 @@ This repository now includes comprehensive documentation explaining the system, 
 - Algorithm control
 - Version control
 - Reproducibility verification
+- Explicit run lifecycle (`pending/success/failed`) and persistence-safety handling
 
 #### Explainability Methods
 - Integrated Gradients visualization
@@ -190,7 +209,7 @@ This repository now includes comprehensive documentation explaining the system, 
 
 ---
 
-### 6. [PREDICTIVE_ANALYTICS_CAPABILITIES.md](PREDICTIVE_ANALYTICS_CAPABILITIES.md) (16KB)
+### 7. [PREDICTIVE_ANALYTICS_CAPABILITIES.md](PREDICTIVE_ANALYTICS_CAPABILITIES.md) (16KB)
 **Purpose**: Plain-language deep dive into predictive analytics capabilities  
 **Best for**: Analysts, product teams, implementation stakeholders, and reviewers who need detailed capability coverage without heavy jargon
 
@@ -198,9 +217,12 @@ This repository now includes comprehensive documentation explaining the system, 
 
 #### End-to-End Capabilities
 - Structured ingestion (entities, events, interactions)
+- Chunked ingest with checkpoint/resume controls
 - Artifact ingestion (image, audio, video) with integrity hashing
 - Feature extraction and cache/version tracking
 - Deterministic training and reproducibility controls
+- Async queue-backed training, extraction, and batch inference
+- Queue health and saturation telemetry
 - Multi-task prediction outputs (regression, probability, ranking)
 - Built-in explainability outputs
 - Natural-language query over predictions
@@ -221,6 +243,16 @@ This repository now includes comprehensive documentation explaining the system, 
 - A complete capability inventory in simple language
 - A reader-friendly document for cross-functional audiences
 - Clear definitions for ML and governance terminology
+
+---
+
+### 8. [IMPLEMENTATION_PLAN_HIGH_VOLUME_DETERMINISTIC_MLOPS.txt](IMPLEMENTATION_PLAN_HIGH_VOLUME_DETERMINISTIC_MLOPS.txt)
+**Purpose**: Roadmap and implementation contract for deterministic high-volume MLOps rollout  
+**Best for**: Technical planning, milestone tracking, and scope alignment
+
+**Use when you need**:
+- Phase-by-phase roadmap context
+- Verification matrix and release criteria reference
 
 ---
 
@@ -260,9 +292,11 @@ This repository now includes comprehensive documentation explaining the system, 
 | UI_USER_GUIDE.md | 12KB | Current UI operations | Tabs, workflows, troubleshooting |
 | QUICK_START_GUIDE.md | 9.2KB | Rapid onboarding | API examples, formats |
 | COMPREHENSIVE_REPOSITORY_GUIDE.md | 46KB | Complete guide | Architecture, integration, use cases |
+| CORPUS_VALIDATION_GUIDE.md | 8KB | Validation playbook | Corpus quality, determinism, telemetry |
 | ARCHITECTURE_DIAGRAMS.md | 27KB | Visual reference | Diagrams, flows |
 | PREDICTIVE_ANALYTICS_CAPABILITIES.md | 16KB | Plain-language deep dive | End-to-end capabilities, glossary |
-| **Total** | **112.1KB** | **Full coverage** | **All aspects including UI operations and plain-language predictive capability guidance** |
+| IMPLEMENTATION_PLAN_HIGH_VOLUME_DETERMINISTIC_MLOPS.txt | 13KB | Roadmap contract | Phases, milestones, verification matrix |
+| **Total** | **~132KB** | **Full coverage** | **Architecture, operations, governance, and predictive capability guidance** |
 
 ---
 

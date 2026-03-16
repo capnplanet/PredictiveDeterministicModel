@@ -2,6 +2,15 @@
 
 This repository implements a deterministic, domain-agnostic analytics stack with a FastAPI backend, Postgres storage, and a React/Vite frontend. The backend provides CSV and artifact ingestion, multimodal feature extraction, deterministic training and inference, and reproducibility tooling. The frontend exposes dataset management, training, runs, and prediction workflows.
 
+Current repository status (March 2026):
+
+- Deterministic model lifecycle with explicit run states (`pending`, `success`, `failed`)
+- Async orchestration via Redis + Celery queues for training, extraction, and batch inference
+- Chunked ingest with deterministic checkpoint/resume controls
+- Queue health telemetry (`/health/queues`) with backlog and saturation indicators
+- Correlation-aware telemetry from API request to async task events
+- Release governance workflow (`Phase 4 Release Gate`) enforcing determinism/integration/performance checks
+
 ## 📚 Documentation
 
 For comprehensive information about this repository and how to use it in enterprise environments:
@@ -51,7 +60,11 @@ xdg-open http://localhost:5173
 ## ✨ Key Features
 
 - ✅ **Deterministic Training** - Bit-exact reproducibility across runs
+- ✅ **Failure-Safe Run Lifecycle** - Explicit pending/success/failed transitions for recovery clarity
 - ✅ **Determinism Matrix CI** - Cross-environment reproducibility gate with artifact/hash comparison
+- ✅ **Async Queue Orchestration** - Enqueue/status APIs for training, feature extraction, and batch inference
+- ✅ **Queue Health Telemetry** - Backlog depth, pending age, and saturation visibility
+- ✅ **Checkpoint/Resume Ingestion** - High-volume chunked ingest with restart-safe progress tracking
 - ✅ **Performance Telemetry** - Structured latency/throughput metrics with CI report artifacts
 - ✅ **Multi-Task Learning** - Regression, Classification, and Ranking in one model
 - ✅ **Multimodal Support** - Images, Audio, Video, and Tabular data
@@ -88,8 +101,11 @@ Main branch changes are validated by:
 
 - `Backend CI` (lint, type checks, backend tests)
 - `Determinism Matrix CI` (cross-Python reproducibility gate)
+- `Phase 4 Release Gate` (determinism + API/integration + performance smoke)
 - `E2E CI` (full-stack UI/API behavior)
 - `Frontend CI` (frontend tests and quality checks)
+
+Note: `E2E CI` is path-triggered and runs on frontend/compose/backend-impacting changes.
 
 ## 📈 Performance Metrics
 
@@ -102,6 +118,17 @@ PYTHONPATH=. python -m app.cli performance-report
 ```
 
 CI uploads these as artifacts in backend and determinism-matrix workflows (report-only mode).
+
+## ⚙️ Async and Queue Endpoints
+
+In addition to synchronous APIs, the stack now exposes queue-backed endpoints:
+
+- `POST /train/async` and `GET /train/async/{task_id}`
+- `POST /features/extract/async` and `GET /features/extract/async/{task_id}`
+- `POST /predict/async` and `GET /predict/async/{task_id}`
+- `GET /health/queues`
+
+Use `idempotency_key` for safe retry semantics and `x-correlation-id` to trace request-to-task telemetry.
 
 ## 🧠 Query Behavior Notes
 

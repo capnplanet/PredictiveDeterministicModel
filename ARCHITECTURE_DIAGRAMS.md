@@ -2,6 +2,17 @@
 
 This document provides visual representations of the system architecture, data flows, and integration patterns.
 
+## Current Architecture Status (March 2026)
+
+The repository now includes deterministic high-volume MLOps operations through Phase 4:
+
+- Async orchestration with Redis + Celery worker queues for training, feature extraction, and batch inference.
+- Task lifecycle persistence (`pending`, `running`, `success`, `failed`) in dedicated task tables.
+- API support for sync and async routes, including enqueue/status endpoints.
+- Queue health telemetry with backlog, oldest pending age, and saturation indicators.
+- Request-to-task correlation ID propagation via middleware and performance telemetry.
+- Release governance workflow (`Phase 4 Release Gate`) combining determinism, integration, and performance smoke checks.
+
 ## System Architecture Overview
 
 ```
@@ -29,12 +40,16 @@ This document provides visual representations of the system architecture, data f
 │  │  ┌─────────────────────────────────────────────────────┐  │   │
 │  │  │         API Routes (Routers)                        │  │   │
 │  │  │  • /health         - Health check                   │  │   │
+│  │  │  • /health/queues  - Broker + queue telemetry       │  │   │
 │  │  │  • /ingest/*       - Data upload endpoints          │  │   │
 │  │  │  • /features/*     - Feature extraction             │  │   │
 │  │  │  • /train          - Model training                 │  │   │
+│  │  │  • /train/async/*  - Training enqueue + status      │  │   │
 │  │  │  • /runs/*         - Training run management        │  │   │
 │  │  │  • /predict        - Inference + Explainability     │  │   │
+│  │  │  • /predict/async/*- Batch inference queue APIs     │  │   │
 │  │  │  • /query          - Query + ranked retrieval       │  │   │
+│  │  │  • /agents/*       - Governed agent workflows       │  │   │
 │  │  │  • /demo/preload   - One-click synthetic bootstrap  │  │   │
 │  │  └─────────────────────────────────────────────────────┘  │   │
 │  └────────────────────┬─────────────────────────────────────────┘   │
@@ -42,10 +57,10 @@ This document provides visual representations of the system architecture, data f
                         │
                         │
 ┌───────────────────────▼──────────────────────────────────────────────┐
-│                    SERVICE LAYER                                     │
+│                    SERVICE + ORCHESTRATION LAYER                     │
 │                                                                      │
 │  ┌──────────────────────────┬────────────────────────────────┐    │
-│  │   Data Services          │   ML Services                   │    │
+│  │   Data Services          │   ML + Queue Services           │    │
 │  │                          │                                 │    │
 │  │  • csv_ingestion.py      │  • image_features.py           │    │
 │  │  • artifact_ingestion.py │  • audio_features.py           │    │
@@ -53,7 +68,15 @@ This document provides visual representations of the system architecture, data f
 │  │  • parquet_export.py     │  • model.py (FullModel)        │    │
 │  │                          │  • train.py                     │    │
 │  │                          │  • synth_data.py                │    │
+│  │                          │  • training_tasks.py            │    │
+│  │                          │  • feature_tasks.py             │    │
+│  │                          │  • batch_inference_tasks.py     │    │
 │  └──────────────────────────┴────────────────────────────────┘    │
+│                                                                      │
+│  ┌──────────────────────────────────────────────────────────────┐ │
+│  │             Redis Broker + Celery Worker Queues              │ │
+│  │             Queues: training, extraction, batch_inference    │ │
+│  └──────────────────────────────────────────────────────────────┘ │
 │                                                                      │
 │  ┌──────────────────────────────────────────────────────────────┐ │
 │  │             Database Session Management                       │ │
@@ -74,7 +97,12 @@ This document provides visual representations of the system architecture, data f
 │  │  ├─ events         (Time-series data)                       │   │
 │  │  ├─ interactions   (Entity relationships)                   │   │
 │  │  ├─ artifacts      (Media file metadata)                    │   │
-│  │  └─ model_runs     (Training history)                       │   │
+│  │  ├─ model_runs     (Training history + run state)           │   │
+│  │  ├─ training_tasks (Async train lifecycle)                  │   │
+│  │  ├─ feature_extraction_tasks (Async extraction lifecycle)    │   │
+│  │  ├─ batch_inference_tasks (Async predict lifecycle)          │   │
+│  │  ├─ agent_runs / agent_steps                                │   │
+│  │  └─ agent_audit_events (Immutable governance audit trail)   │   │
 │  └────────────────────────────────────────────────────────────┘   │
 └──────────────────────────────────────────────────────────────────────┘
 
@@ -96,6 +124,12 @@ This document provides visual representations of the system architecture, data f
 │        ├─ metrics.json      (Performance metrics)                   │
 │        ├─ data_manifest.json (Data snapshot)                        │
 │        └─ training_log.jsonl (Training progress)                    │
+│                                                                      │
+│  📁 data/checkpoints/       (Deterministic ingest resume state)     │
+│     ├─ entities/                                                     │
+│     ├─ events/                                                       │
+│     ├─ interactions/                                                 │
+│     └─ artifacts/                                                    │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
