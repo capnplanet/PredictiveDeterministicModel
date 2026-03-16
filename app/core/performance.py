@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-from contextlib import contextmanager
 from contextvars import ContextVar, Token
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter

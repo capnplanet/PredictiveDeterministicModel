@@ -144,31 +144,31 @@ jobs:
 
           reports = [json.loads(path.read_text()) for path in files]
           baseline = reports[0]
-            baseline_run_id = baseline['run_id']
+          baseline_run_id = baseline['run_id']
 
-            drift_notes = []
+          drift_notes = []
 
           for idx, report in enumerate(reports[1:], start=2):
               if report['run_id'] != baseline_run_id:
                   raise SystemExit(
                       'Determinism matrix drift detected. '
-                  f'Baseline run_id={baseline_run_id}, report#{idx} run_id={report["run_id"]}'
+                      f'Baseline run_id={baseline_run_id}, report#{idx} run_id={report["run_id"]}'
                   )
 
               if report['model_sha256'] != baseline['model_sha256']:
-                drift_notes.append(
-                  f'model_sha drift report#{idx}: {report["model_sha256"]} != {baseline["model_sha256"]}'
-                )
+                  drift_notes.append(
+                      f'model_sha drift report#{idx}: {report["model_sha256"]} != {baseline["model_sha256"]}'
+                  )
               if report['metrics_sha256'] != baseline['metrics_sha256']:
-                drift_notes.append(
-                  f'metrics_sha drift report#{idx}: {report["metrics_sha256"]} != {baseline["metrics_sha256"]}'
-                )
+                  drift_notes.append(
+                      f'metrics_sha drift report#{idx}: {report["metrics_sha256"]} != {baseline["metrics_sha256"]}'
+                  )
 
-            print('Determinism matrix run_id comparison passed across all reports.')
-            if drift_notes:
+          print('Determinism matrix run_id comparison passed across all reports.')
+          if drift_notes:
               print('Note: cross-runtime artifact hash drift observed (informational):')
               for note in drift_notes:
-                print('-', note)
+                  print('-', note)
           PY
 
       - name: Download performance reports
