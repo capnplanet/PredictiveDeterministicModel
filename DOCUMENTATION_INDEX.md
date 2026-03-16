@@ -256,6 +256,24 @@ This repository now includes comprehensive documentation explaining the system, 
 
 ---
 
+### 9. [GMP_VALIDATION_CHECKLIST.md](GMP_VALIDATION_CHECKLIST.md)
+**Purpose**: GMP-focused validation and release checklist for manufacturing oversight and continuous improvement workflows  
+**Best for**: QA, compliance, manufacturing science, and release managers
+
+**Contents**:
+- Data governance and integrity checks for GMP evidence flows
+- Deterministic ingestion and feature pipeline controls
+- Training reproducibility and run-lineage checks
+- Prediction/explainability controls for human-in-the-loop decision support
+- Queue telemetry and correlation traceability validation
+- CI gate and sign-off requirements for production promotion
+
+**Use when you need**:
+- A release-ready GMP validation checklist tied to repository capabilities
+- Audit-oriented evidence packaging and approval controls
+
+---
+
 ## 🎯 Which Document Should I Read?
 
 ### "I just want to try it out quickly"
@@ -296,7 +314,8 @@ This repository now includes comprehensive documentation explaining the system, 
 | ARCHITECTURE_DIAGRAMS.md | 27KB | Visual reference | Diagrams, flows |
 | PREDICTIVE_ANALYTICS_CAPABILITIES.md | 16KB | Plain-language deep dive | End-to-end capabilities, glossary |
 | IMPLEMENTATION_PLAN_HIGH_VOLUME_DETERMINISTIC_MLOPS.txt | 13KB | Roadmap contract | Phases, milestones, verification matrix |
-| **Total** | **~132KB** | **Full coverage** | **Architecture, operations, governance, and predictive capability guidance** |
+| GMP_VALIDATION_CHECKLIST.md | 7KB | GMP validation checklist | Data integrity, determinism, CI/sign-off |
+| **Total** | **~139KB** | **Full coverage** | **Architecture, operations, governance, GMP validation, and predictive capability guidance** |
 
 ---
 
@@ -338,4 +357,4 @@ This repository now includes comprehensive documentation explaining the system, 
 *Documentation Version: 1.1*  
 *Created: January 2026*  
 *Updated: March 2026*  
-*Total Documentation: 112.1KB across 6 comprehensive files*
+*Total Documentation: ~139KB across 9 core files*

@@ -912,9 +912,18 @@ Cloud:
 
 **Why determinism matters**: ISO certification requires documented, reproducible processes; liability claims need audit trails.
 
+**10. GMP Manufacturing Oversight and Continuous Improvement**
+- **Entities**: Batches, lots, lines, and process units
+- **Events**: Electronic batch records, deviations, CAPA actions, environmental readings
+- **Interactions**: Supplier-material-line dependencies and shift/hand-off relationships
+- **Artifacts**: SOP revisions, calibration certificates, in-process images, QA documents
+- **Prediction**: Deviation risk, yield drift, and quality trend signals with explainable contributors
+
+**Why determinism matters**: GMP operations require traceable, reproducible evidence for audit readiness, deviation investigations, and validated continuous improvement actions.
+
 ### Telecommunications
 
-**10. Churn Prediction**
+**11. Churn Prediction**
 - **Entities**: Subscribers
 - **Events**: Usage patterns, billing history, support calls
 - **Interactions**: Social network effects
@@ -925,7 +934,7 @@ Cloud:
 
 ### Government & Public Sector
 
-**11. Social Program Eligibility**
+**12. Social Program Eligibility**
 - **Entities**: Applicants
 - **Events**: Employment history, benefit usage
 - **Interactions**: Family networks, referrals
@@ -934,7 +943,7 @@ Cloud:
 
 **Why determinism matters**: Fairness and equity require auditable decisions; legal challenges need model reproducibility.
 
-**12. Infrastructure Monitoring**
+**13. Infrastructure Monitoring**
 - **Entities**: Bridges, roads, public facilities
 - **Events**: Inspection reports, usage metrics
 - **Interactions**: Infrastructure networks
@@ -942,6 +951,196 @@ Cloud:
 - **Prediction**: Maintenance priority rankings
 
 **Why determinism matters**: Budget accountability requires transparent prioritization; disaster prevention needs reliable predictions.
+
+## Detailed Implementation Workflows by Use Case
+
+The following workflows provide an execution-ready blueprint for each use case listed above. Each workflow follows a common operating model:
+
+1. Data contract and schema mapping
+2. Deterministic ingestion and checkpoint controls
+3. Feature extraction and cache/version validation
+4. Train (sync or async) and record run lineage
+5. Validate quality, explainability, and determinism
+6. Promote to production with telemetry and governance checks
+
+### 1. Credit Risk Scoring Workflow
+
+1. Define a canonical applicant entity schema with numeric attributes and target fields (`target_regression`, `target_binary`, `target_ranking`).
+2. Build event feeds for payment history, delinquency transitions, and account actions in `events.csv` format.
+3. Build interaction feeds for co-signers and entity linkages in `interactions.csv` format.
+4. Ingest entities/events/interactions through `/ingest/*` using chunked form controls (`chunk_size`, `checkpoint_key`, `resume_from_checkpoint`) for large batches.
+5. Ingest supporting document artifacts through `/ingest/artifacts` or `/ingest/artifact` and run `/features/extract` or `/features/extract/async`.
+6. Start training with `/train/async` and an idempotency key; poll `/train/async/{task_id}` to completion.
+7. Validate run outputs with `/runs/{run_id}` and run deterministic parity checks (`python -m app.cli determinism-check`).
+8. Score applicant cohorts via `/predict` or `/predict/async`; persist probability and ranking outputs in the decision platform.
+9. Attach explanation payloads to adverse-action and approval workflows for compliance review.
+10. Monitor queue and latency health via `/health/queues` and performance report artifacts before expanding traffic.
+
+### 2. Fraud Detection Workflow
+
+1. Model transactions as entities or entity-linked events depending on operational granularity.
+2. Capture sequential behavior (velocity, amount spikes, geo shifts) in timestamped events.
+3. Capture transfer graph edges in interactions to expose suspicious network motifs.
+4. Ingest receipt imagery, IVR/call artifacts, or chat transcript artifacts for multimodal evidence.
+5. Run feature extraction with versioned cache validation and ensure stale features are recomputed.
+6. Train asynchronously with small epochs first for quick calibration cycles, then full training jobs.
+7. Validate false-positive and true-positive tradeoffs using saved run metrics and threshold policies.
+8. Deploy synchronous `/predict` for real-time scoring and async `/predict/async` for retrospective sweeps.
+9. Route high-risk scores to hold/review queues with explanation fragments attached for investigator context.
+10. Use correlation IDs to trace each flagged decision from API request to queued task and telemetry event.
+
+### 3. Algorithmic Trading Workflow
+
+1. Define securities or strategy units as entities with normalized state attributes.
+2. Stream market micro-events into deterministic event records ordered by timestamp plus stable identifiers.
+3. Encode cross-asset relationships in interactions (correlation, sector linkage, spread dynamics).
+4. Ingest supporting news/audio artifacts where available for multimodal context.
+5. Use checkpoint-enabled ingestion to recover from feed interruption without data duplication.
+6. Train run candidates asynchronously and compare run-level metrics and hash outputs.
+7. Execute deterministic replay checks to confirm same-run reproducibility under pinned runtime.
+8. Publish scored outputs to strategy simulation environments before production use.
+9. Apply query workflows (`/query`) for analyst exploration of strongest/weakest signals.
+10. Gate production deployment on CI determinism matrix and release-gate workflow success.
+
+### 4. Patient Risk Stratification Workflow
+
+1. Define patient entity schema with strict governance over sensitive attributes.
+2. Record encounter, lab, treatment, and utilization timelines as events.
+3. Map provider referral and care-team dependencies as interactions.
+4. Ingest imaging/audio artifacts and enforce SHA256 integrity controls.
+5. Run deterministic ingestion and checkpointing to support long-running healthcare data loads.
+6. Execute feature extraction and verify feature version consistency across train/infer paths.
+7. Train with explicit run-state lifecycle tracking to preserve recoverability evidence.
+8. Score populations with `/predict`; include explanations for clinician review and second-level audit.
+9. Use approval-controlled agent workflows for recurring cohort analysis and policy-sensitive tasks.
+10. Archive run metadata, audit events, and determinism reports for regulatory and peer-review requirements.
+
+### 5. Drug Discovery Workflow
+
+1. Define compounds as entities and encode assay outcomes as events.
+2. Model compound-protein or compound-pathway links as interactions.
+3. Ingest molecular or spectroscopy artifacts and attach to relevant entities.
+4. Batch ingest datasets with deterministic checkpointing to handle large experimental corpora.
+5. Extract multimodal features and lock feature-version hashes for experiment reproducibility.
+6. Train multiple candidate runs asynchronously using distinct config payloads and idempotency keys.
+7. Compare regression, probability, and ranking metrics across runs and document threshold policy decisions.
+8. Reproduce top run(s) and verify parity before reporting efficacy/toxicity outputs.
+9. Query high-potential compounds using natural-language ranking prompts through `/query`.
+10. Store model/run artifacts and telemetry snapshots to support downstream submission packages.
+
+### 6. Customer Lifetime Value Workflow
+
+1. Define customer entities with standardized profile and target attributes.
+2. Ingest purchase/support/engagement histories as ordered events.
+3. Encode referral and household relationships as interaction graphs.
+4. Add relevant artifact context (reviews, call audio, media engagement) where available.
+5. Execute chunked ingest for daily updates and resume from checkpoints on interruption.
+6. Train asynchronously to avoid blocking API paths during periodic retraining windows.
+7. Score full customer base via async batch prediction and persist outputs in CRM marts.
+8. Use explanation outputs to identify dominant value drivers by segment.
+9. Use `/query` prompts for campaign planning (high value, elevated risk, strongest relationship signals).
+10. Monitor queue saturation and backlog to keep retraining/scoring jobs within SLA windows.
+
+### 7. Personalized Recommendations Workflow
+
+1. Define catalog items and users as entities according to recommendation objective.
+2. Capture views/carts/purchases as events with strict timestamp ordering.
+3. Encode co-purchase and affinity edges as interactions.
+4. Ingest product images/video/audio artifacts to enrich item understanding.
+5. Run feature extraction and confirm cache freshness after extractor changes.
+6. Train ranking-oriented runs and evaluate rank-focused metrics from run outputs.
+7. Serve near-real-time recommendations through synchronous `/predict` for request path use.
+8. Serve periodic bulk recommendation refreshes through `/predict/async`.
+9. Expose narrative and explanation details to merchandisers and support teams.
+10. Validate recommendation stability with repeated deterministic checks before seasonal rollout.
+
+### 8. Predictive Maintenance Workflow
+
+1. Define machines/assets as entities with equipment metadata attributes.
+2. Stream sensor observations as events, preserving deterministic order.
+3. Encode machine-line dependencies and upstream/downstream links as interactions.
+4. Ingest thermal/vibration/acoustic artifacts from inspections and sensors.
+5. Use checkpointed ingestion to process high-volume telemetry reliably.
+6. Extract features and validate modality coverage for each critical asset class.
+7. Train asynchronously and monitor task lifecycle transitions to completion.
+8. Score assets and prioritize failures via ranking output and probability thresholds.
+9. Attach explanation signals to maintenance work orders for technician context.
+10. Track queue health and telemetry to ensure backlog drains inside maintenance planning windows.
+
+### 9. Quality Control Workflow
+
+1. Define manufactured units or batches as entities.
+2. Capture process station readings and QA checkpoints as events.
+3. Encode supplier, batch, and production-line relationships as interactions.
+4. Ingest inspection images/audio/ultrasound artifacts and verify hash integrity.
+5. Ingest and extract in deterministic chunks to sustain production-scale throughput.
+6. Train defect scoring models with explicit pending/success/failed run states.
+7. Score production output through sync or async APIs depending on latency requirements.
+8. Use explanations to localize likely defect drivers (event sequence, artifact signals, interaction context).
+9. Automate quarantine/escalation rules using probability and ranking thresholds.
+10. Retain audit-ready run manifests and telemetry reports for certification evidence.
+
+### 10. GMP Manufacturing Oversight and Continuous Improvement Workflow
+
+1. Define GMP-relevant entities for batches, lots, production lines, and equipment states.
+2. Ingest electronic batch records, deviations, environmental monitoring, and process step telemetry as ordered events.
+3. Encode supplier-material-line and hand-off dependencies as interactions to expose systemic quality risk paths.
+4. Ingest controlled artifacts (SOP revisions, calibration records, QA documentation, inspection media) with integrity checks.
+5. Use checkpointed ingestion for large historical quality datasets and for reliable daily incremental ingestion.
+6. Extract features and verify feature-version stability so validated model behavior remains reproducible across cycles.
+7. Train asynchronously with idempotency keys and preserve full run lineage for validation and quality-unit review.
+8. Score lots and in-process checkpoints for deviation/yield risk; attach explanation payloads for root-cause triage.
+9. Route high-risk signals to human review workflows (QA, manufacturing science, compliance) rather than autonomous release decisions.
+10. Monitor queue and telemetry health, and enforce determinism and CI release gates before promoting model updates into GMP decision-support operations.
+
+### 11. Churn Prediction Workflow
+
+1. Define subscriber entities and align retention-related targets.
+2. Ingest billing, usage, support, and engagement events.
+3. Encode social or account-link relationships as interactions where policy allows.
+4. Ingest call/chat artifacts and extract multimodal features for risk context.
+5. Run asynchronous retraining on rolling cadence with idempotency-protected jobs.
+6. Validate model quality and determinism before campaign activation.
+7. Score all subscribers in async batches; persist results to retention tooling.
+8. Drive intervention prioritization from ranking scores and churn probabilities.
+9. Use `/query` for analyst workflows (elevated risk segments, strongest relationship patterns).
+10. Monitor queue telemetry and model drift to adjust retraining frequency.
+
+### 12. Social Program Eligibility Workflow
+
+1. Define applicant entity schema and policy-aligned target labels.
+2. Capture application and verification timelines as events.
+3. Encode legally permitted household/referral relationships as interactions.
+4. Ingest document and interview artifacts with strict integrity tracking.
+5. Process all data through deterministic checkpointed ingestion for evidentiary traceability.
+6. Train with run lifecycle persistence and capture all config/manifest metadata.
+7. Generate predictions and explanations for reviewer decision support, not auto-adjudication alone.
+8. Use agent workflows with approval-required controls for higher-risk automation operations.
+9. Produce compliance summaries and immutable audit records for governance review.
+10. Enforce promotion gates (determinism + integration + performance smoke) before policy deployment.
+
+### 13. Infrastructure Monitoring Workflow
+
+1. Define infrastructure assets as entities with geo/type/criticality attributes.
+2. Ingest inspection cycles and telemetry readings as events.
+3. Encode network dependencies and cascading-impact relationships as interactions.
+4. Ingest drone imagery and sensor artifacts for multimodal condition evidence.
+5. Run high-volume checkpointed ingestion for recurring inspection datasets.
+6. Extract features and retrain asynchronously on maintenance cadence.
+7. Score assets for maintenance priority using ranking and risk probabilities.
+8. Attach explanations to budget and maintenance board decisions for transparency.
+9. Query high-risk cohorts via natural-language prompts for planning briefings.
+10. Track queue saturation and end-to-end latency telemetry to maintain operational SLAs.
+
+### Shared Validation and Release Checklist for All Use Cases
+
+1. Confirm ingest reports indicate expected totals, successes, and failures.
+2. Confirm queue health is acceptable before and during async workloads.
+3. Confirm run status transitions and artifact persistence are consistent.
+4. Confirm deterministic parity checks pass on representative data slices.
+5. Confirm explanation payloads are present for regulated/high-impact workflows.
+6. Confirm CI gates (`Backend CI`, `Determinism Matrix CI`, `Phase 4 Release Gate`) pass before promotion.
+7. Confirm telemetry reports include request, async task, and queue health events.
 
 ---
 
