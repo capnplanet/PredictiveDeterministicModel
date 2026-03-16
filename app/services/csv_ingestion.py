@@ -29,6 +29,7 @@ class IngestionReport:
 
 _MAX_ROWS = 1_000_000
 _MAX_FILE_BYTES = 50 * 1024 * 1024
+_DEFAULT_CHUNK_SIZE = 1_000
 
 
 def _validate_file(path: Path) -> None:
@@ -51,18 +52,58 @@ def _read_csv_rows(path: Path) -> Iterable[dict[str, str]]:
             yield row
 
 
-def ingest_entities_csv(session: Session, path: Path) -> IngestionReport:
+def _load_checkpoint(path: Path) -> int:
+    if not path.exists():
+        return 0
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        value = int(payload.get("last_processed_row", 0))
+        return max(0, value)
+    except Exception as exc:  # noqa: BLE001
+        raise IngestionError(f"Invalid checkpoint file: {path}: {exc}") from exc
+
+
+def _write_checkpoint(path: Path, last_processed_row: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"last_processed_row": int(max(0, last_processed_row))}
+    path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+
+
+def _effective_chunk_size(chunk_size: int) -> int:
+    if chunk_size <= 0:
+        raise IngestionError("chunk_size must be > 0")
+    return int(chunk_size)
+
+
+def ingest_entities_csv(
+    session: Session,
+    path: Path,
+    *,
+    chunk_size: int = _DEFAULT_CHUNK_SIZE,
+    checkpoint_path: Path | None = None,
+    resume_from_checkpoint: bool = True,
+) -> IngestionReport:
     started = perf_counter()
+    effective_chunk = _effective_chunk_size(chunk_size)
     required_cols = {"entity_id", "attributes"}
     total = success = failed = 0
     errors: List[str] = []
+    checkpoint_row = (
+        _load_checkpoint(checkpoint_path) if checkpoint_path is not None and resume_from_checkpoint else 0
+    )
+    last_processed_row = checkpoint_row
+    flush_counter = 0
 
-    for row in _read_csv_rows(path):
+    for row_number, row in enumerate(_read_csv_rows(path), start=1):
+        if row_number <= checkpoint_row:
+            continue
+
         total += 1
         missing = required_cols - set(row.keys())
         if missing:
             failed += 1
             errors.append(f"Missing columns {missing} in row {total}")
+            last_processed_row = row_number
             continue
         try:
             entity_id = row["entity_id"].strip()
@@ -85,14 +126,25 @@ def ingest_entities_csv(session: Session, path: Path) -> IngestionReport:
             entity = Entity(entity_id=entity_id, attributes=attributes, created_at=created_at)
             session.merge(entity)
             success += 1
+            flush_counter += 1
         except Exception as exc:  # noqa: BLE001
             failed += 1
             raw_attrs = row.get("attributes", "")
             errors.append(f"Row {total}: {exc} [attributes={raw_attrs!r}]")
+        finally:
+            last_processed_row = row_number
+
+        if flush_counter >= effective_chunk:
+            session.flush()
+            flush_counter = 0
+            if checkpoint_path is not None:
+                _write_checkpoint(checkpoint_path, last_processed_row)
 
     # Ensure pending inserts are flushed so callers can query immediately within the same session
     if success:
         session.flush()
+    if checkpoint_path is not None:
+        _write_checkpoint(checkpoint_path, last_processed_row)
 
     duration_ms = (perf_counter() - started) * 1000.0
     throughput = (success / max(duration_ms / 1000.0, 1e-9)) if success else 0.0
@@ -103,23 +155,42 @@ def ingest_entities_csv(session: Session, path: Path) -> IngestionReport:
         total_rows=total,
         success_rows=success,
         failed_rows=failed,
+        chunk_size=effective_chunk,
+        resumed_from_row=checkpoint_row,
         throughput_rows_per_sec=round(throughput, 3),
     )
     return IngestionReport(total_rows=total, success_rows=success, failed_rows=failed, errors=errors)
 
 
-def ingest_events_csv(session: Session, path: Path) -> IngestionReport:
+def ingest_events_csv(
+    session: Session,
+    path: Path,
+    *,
+    chunk_size: int = _DEFAULT_CHUNK_SIZE,
+    checkpoint_path: Path | None = None,
+    resume_from_checkpoint: bool = True,
+) -> IngestionReport:
     started = perf_counter()
+    effective_chunk = _effective_chunk_size(chunk_size)
     required_cols = {"timestamp", "entity_id", "event_type", "event_value"}
     total = success = failed = 0
     errors: List[str] = []
+    checkpoint_row = (
+        _load_checkpoint(checkpoint_path) if checkpoint_path is not None and resume_from_checkpoint else 0
+    )
+    last_processed_row = checkpoint_row
+    flush_counter = 0
 
-    for row in _read_csv_rows(path):
+    for row_number, row in enumerate(_read_csv_rows(path), start=1):
+        if row_number <= checkpoint_row:
+            continue
+
         total += 1
         missing = required_cols - set(row.keys())
         if missing:
             failed += 1
             errors.append(f"Missing columns {missing} in row {total}")
+            last_processed_row = row_number
             continue
         try:
             ts = datetime.fromisoformat(row["timestamp"].strip())
@@ -137,12 +208,23 @@ def ingest_events_csv(session: Session, path: Path) -> IngestionReport:
             )
             session.add(event)
             success += 1
+            flush_counter += 1
         except Exception as exc:  # noqa: BLE001
             failed += 1
             errors.append(f"Row {total}: {exc}")
+        finally:
+            last_processed_row = row_number
+
+        if flush_counter >= effective_chunk:
+            session.flush()
+            flush_counter = 0
+            if checkpoint_path is not None:
+                _write_checkpoint(checkpoint_path, last_processed_row)
 
     if success:
         session.flush()
+    if checkpoint_path is not None:
+        _write_checkpoint(checkpoint_path, last_processed_row)
 
     duration_ms = (perf_counter() - started) * 1000.0
     throughput = (success / max(duration_ms / 1000.0, 1e-9)) if success else 0.0
@@ -153,23 +235,42 @@ def ingest_events_csv(session: Session, path: Path) -> IngestionReport:
         total_rows=total,
         success_rows=success,
         failed_rows=failed,
+        chunk_size=effective_chunk,
+        resumed_from_row=checkpoint_row,
         throughput_rows_per_sec=round(throughput, 3),
     )
     return IngestionReport(total_rows=total, success_rows=success, failed_rows=failed, errors=errors)
 
 
-def ingest_interactions_csv(session: Session, path: Path) -> IngestionReport:
+def ingest_interactions_csv(
+    session: Session,
+    path: Path,
+    *,
+    chunk_size: int = _DEFAULT_CHUNK_SIZE,
+    checkpoint_path: Path | None = None,
+    resume_from_checkpoint: bool = True,
+) -> IngestionReport:
     started = perf_counter()
+    effective_chunk = _effective_chunk_size(chunk_size)
     required_cols = {"timestamp", "src_entity_id", "dst_entity_id", "interaction_type", "interaction_value"}
     total = success = failed = 0
     errors: List[str] = []
+    checkpoint_row = (
+        _load_checkpoint(checkpoint_path) if checkpoint_path is not None and resume_from_checkpoint else 0
+    )
+    last_processed_row = checkpoint_row
+    flush_counter = 0
 
-    for row in _read_csv_rows(path):
+    for row_number, row in enumerate(_read_csv_rows(path), start=1):
+        if row_number <= checkpoint_row:
+            continue
+
         total += 1
         missing = required_cols - set(row.keys())
         if missing:
             failed += 1
             errors.append(f"Missing columns {missing} in row {total}")
+            last_processed_row = row_number
             continue
         try:
             ts = datetime.fromisoformat(row["timestamp"].strip())
@@ -189,12 +290,23 @@ def ingest_interactions_csv(session: Session, path: Path) -> IngestionReport:
             )
             session.add(interaction)
             success += 1
+            flush_counter += 1
         except Exception as exc:  # noqa: BLE001
             failed += 1
             errors.append(f"Row {total}: {exc}")
+        finally:
+            last_processed_row = row_number
+
+        if flush_counter >= effective_chunk:
+            session.flush()
+            flush_counter = 0
+            if checkpoint_path is not None:
+                _write_checkpoint(checkpoint_path, last_processed_row)
 
     if success:
         session.flush()
+    if checkpoint_path is not None:
+        _write_checkpoint(checkpoint_path, last_processed_row)
 
     duration_ms = (perf_counter() - started) * 1000.0
     throughput = (success / max(duration_ms / 1000.0, 1e-9)) if success else 0.0
@@ -205,6 +317,8 @@ def ingest_interactions_csv(session: Session, path: Path) -> IngestionReport:
         total_rows=total,
         success_rows=success,
         failed_rows=failed,
+        chunk_size=effective_chunk,
+        resumed_from_row=checkpoint_row,
         throughput_rows_per_sec=round(throughput, 3),
     )
     return IngestionReport(total_rows=total, success_rows=success, failed_rows=failed, errors=errors)

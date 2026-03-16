@@ -7,8 +7,12 @@ from typing import Any, Awaitable, Callable, Dict
 from app.api.routes.predict import predict as predict_entities
 from app.api.routes.query import query_predictions
 from app.api.schemas import PredictRequest, QueryRequest
+from app.core.performance import get_correlation_id
 from app.db.models import ModelRun
 from app.db.session import session_scope
+from app.services.batch_inference_tasks import enqueue_batch_inference_task
+from app.services.feature_tasks import enqueue_feature_extraction_task
+from app.services.training_tasks import enqueue_training_task
 from app.training.train import reproduce_run, run_training
 
 ToolExecutor = Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]
@@ -113,6 +117,58 @@ async def _tool_train_model(arguments: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+async def _tool_enqueue_train_model(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    config_payload = arguments.get("config")
+    config_dict = dict(config_payload) if isinstance(config_payload, dict) else None
+    idempotency_key = arguments.get("idempotency_key")
+    task_id, reused = enqueue_training_task(
+        config_payload=config_dict,
+        idempotency_key=str(idempotency_key) if isinstance(idempotency_key, str) else None,
+        correlation_id=get_correlation_id(),
+    )
+    return {
+        "task_id": task_id,
+        "idempotent_reused": bool(reused),
+        "queue": "training",
+    }
+
+
+async def _tool_enqueue_batch_inference(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    entity_ids = arguments.get("entity_ids")
+    if not isinstance(entity_ids, list) or not entity_ids:
+        raise RuntimeError("entity_ids must be a non-empty list")
+    payload = {
+        "entity_ids": [str(v) for v in entity_ids],
+        "run_id": arguments.get("run_id"),
+        "explanations": bool(arguments.get("explanations", False)),
+        "narrative_mode": str(arguments.get("narrative_mode", "template")),
+        "correlation_id": get_correlation_id(),
+    }
+    idempotency_key = arguments.get("idempotency_key")
+    task_id, reused = enqueue_batch_inference_task(
+        request_payload=payload,
+        idempotency_key=str(idempotency_key) if isinstance(idempotency_key, str) else None,
+    )
+    return {
+        "task_id": task_id,
+        "idempotent_reused": bool(reused),
+        "queue": "batch_inference",
+    }
+
+
+async def _tool_enqueue_feature_extraction(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    idempotency_key = arguments.get("idempotency_key")
+    task_id, reused = enqueue_feature_extraction_task(
+        idempotency_key=str(idempotency_key) if isinstance(idempotency_key, str) else None,
+        correlation_id=get_correlation_id(),
+    )
+    return {
+        "task_id": task_id,
+        "idempotent_reused": bool(reused),
+        "queue": "extraction",
+    }
+
+
 AGENT_TOOL_REGISTRY: Dict[str, AgentToolSpec] = {
     "get_run_metrics": AgentToolSpec(
         name="get_run_metrics",
@@ -148,6 +204,27 @@ AGENT_TOOL_REGISTRY: Dict[str, AgentToolSpec] = {
         deterministic_safe=True,
         idempotent=False,
         executor=_tool_train_model,
+    ),
+    "enqueue_train_model": AgentToolSpec(
+        name="enqueue_train_model",
+        description="Enqueue model training on the training queue.",
+        deterministic_safe=True,
+        idempotent=True,
+        executor=_tool_enqueue_train_model,
+    ),
+    "enqueue_batch_inference": AgentToolSpec(
+        name="enqueue_batch_inference",
+        description="Enqueue batch inference on the batch inference queue.",
+        deterministic_safe=True,
+        idempotent=True,
+        executor=_tool_enqueue_batch_inference,
+    ),
+    "enqueue_feature_extraction": AgentToolSpec(
+        name="enqueue_feature_extraction",
+        description="Enqueue extraction for pending features on the extraction queue.",
+        deterministic_safe=True,
+        idempotent=True,
+        executor=_tool_enqueue_feature_extraction,
     ),
 }
 

@@ -2,13 +2,20 @@ from __future__ import annotations
 
 from typing import List
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
-from app.api.schemas import RunInfo, TrainRequest, TrainResponse
-from app.core.performance import timed_performance_event
-from app.db.models import ModelRun
+from app.api.schemas import (
+    RunInfo,
+    TrainEnqueueRequest,
+    TrainRequest,
+    TrainResponse,
+    TrainTaskResponse,
+)
+from app.core.performance import get_correlation_id, timed_performance_event
+from app.db.models import ModelRun, TrainingTask
 from app.db.session import session_scope
+from app.services.training_tasks import enqueue_training_task
 from app.training.train import run_training
 
 router = APIRouter(prefix="", tags=["training"])
@@ -34,13 +41,63 @@ async def train_model(request: TrainRequest) -> TrainResponse:
         batch_size=getattr(cfg, "batch_size", None),
     ):
         run_id, metrics = run_training(config_path=config_path)
-    return TrainResponse(run_id=run_id, metrics=metrics)
+    return TrainResponse(run_id=run_id, metrics=metrics, correlation_id=get_correlation_id())
+
+
+@router.post("/train/async", response_model=TrainTaskResponse)
+async def enqueue_train_model(request: TrainEnqueueRequest) -> TrainTaskResponse:
+    task_id, _ = enqueue_training_task(
+        config_payload=request.config.model_dump() if request.config is not None else None,
+        idempotency_key=request.idempotency_key,
+        correlation_id=get_correlation_id(),
+    )
+
+    with session_scope() as session:
+        task = session.get(TrainingTask, task_id)
+        if task is None:
+            raise RuntimeError(f"Training task not found after enqueue: {task_id}")
+        return TrainTaskResponse(
+            task_id=task.task_id,
+            status=str(task.status),
+            queue_name=task.queue_name,
+            idempotency_key=task.idempotency_key,
+            correlation_id=(task.request_payload or {}).get("correlation_id"),
+            run_id=task.run_id,
+            error_message=task.error_message,
+            created_at=task.created_at,
+            started_at=task.started_at,
+            completed_at=task.completed_at,
+        )
+
+
+@router.get("/train/async/{task_id}", response_model=TrainTaskResponse)
+async def get_train_task_status(task_id: str) -> TrainTaskResponse:
+    with session_scope() as session:
+        task = session.get(TrainingTask, task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail=f"Training task not found: {task_id}")
+        return TrainTaskResponse(
+            task_id=task.task_id,
+            status=str(task.status),
+            queue_name=task.queue_name,
+            idempotency_key=task.idempotency_key,
+            correlation_id=(task.request_payload or {}).get("correlation_id"),
+            run_id=task.run_id,
+            error_message=task.error_message,
+            created_at=task.created_at,
+            started_at=task.started_at,
+            completed_at=task.completed_at,
+        )
 
 
 @router.get("/runs", response_model=List[RunInfo])
 async def list_runs() -> List[RunInfo]:
     with session_scope() as session:
-        runs = session.execute(select(ModelRun)).scalars().all()
+        runs = (
+            session.execute(select(ModelRun).order_by(ModelRun.created_at.desc(), ModelRun.run_id.desc()))
+            .scalars()
+            .all()
+        )
         return [
             RunInfo(
                 run_id=r.run_id,

@@ -92,20 +92,51 @@ def _build_modality_tensors(
     artifact_feats = np.zeros((n_entities, 1, artifact_feat_dim), dtype="float32")
 
     with session_scope() as session:
-        events: List[Event] = session.execute(select(Event)).scalars().all()
-        interactions: List[Interaction] = session.execute(select(Interaction)).scalars().all()
-        artifacts: List[Artifact] = session.execute(select(Artifact)).scalars().all()
+        events: List[Event] = (
+            session.execute(
+                select(Event).order_by(
+                    Event.entity_id.asc(),
+                    Event.timestamp.asc(),
+                    Event.event_id.asc(),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        interactions: List[Interaction] = (
+            session.execute(
+                select(Interaction).order_by(
+                    Interaction.src_entity_id.asc(),
+                    Interaction.dst_entity_id.asc(),
+                    Interaction.timestamp.asc(),
+                    Interaction.interaction_id.asc(),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        artifacts: List[Artifact] = (
+            session.execute(
+                select(Artifact).order_by(
+                    Artifact.entity_id.asc(),
+                    Artifact.artifact_id.asc(),
+                )
+            )
+            .scalars()
+            .all()
+        )
 
     events_by_entity: Dict[str, List[Event]] = {}
     for evt in events:
         events_by_entity.setdefault(evt.entity_id, []).append(evt)
 
-    for entity_id, evt_list in events_by_entity.items():
+    for entity_id in sorted(events_by_entity):
+        evt_list = events_by_entity[entity_id]
         idx = id_to_idx.get(entity_id)
         if idx is None:
             continue
         # Use most recent fixed-length sequence and preserve chronological order.
-        sorted_events = sorted(evt_list, key=lambda e: e.timestamp)[-event_seq_len:]
+        sorted_events = sorted(evt_list, key=lambda e: (e.timestamp, str(e.event_id)))[-event_seq_len:]
         prev_ts: Optional[datetime] = None
         for t, evt in enumerate(sorted_events):
             event_type_ids[idx, t] = _event_type_to_id(evt.event_type)
@@ -127,7 +158,8 @@ def _build_modality_tensors(
             float(inter.interaction_value)
         )
 
-    for src_id, dst_scores in interaction_scores.items():
+    for src_id in sorted(interaction_scores):
+        dst_scores = interaction_scores[src_id]
         src_idx = id_to_idx[src_id]
         ranked = sorted(dst_scores.items(), key=lambda item: (-item[1], item[0]))
         for k, (dst_id, _) in enumerate(ranked[:neighbor_k]):
@@ -148,7 +180,8 @@ def _build_modality_tensors(
         compressed = _compress_feature_vector(vec, artifact_feat_dim)
         artifact_vecs.setdefault(art.entity_id, []).append(compressed)
 
-    for entity_id, vecs in artifact_vecs.items():
+    for entity_id in sorted(artifact_vecs):
+        vecs = artifact_vecs[entity_id]
         idx = id_to_idx[entity_id]
         stacked = np.stack(vecs, axis=0)
         artifact_feats[idx, 0, :] = stacked.mean(axis=0)
@@ -397,7 +430,11 @@ def _build_entity_tensors() -> Tuple[
 ]:
     # Returns mapping entity_id->index and per-entity arrays for attributes and targets.
     with session_scope() as session:
-        entities: List[Entity] = session.execute(select(Entity)).scalars().all()
+        entities: List[Entity] = (
+            session.execute(select(Entity).order_by(Entity.created_at.asc(), Entity.entity_id.asc()))
+            .scalars()
+            .all()
+        )
     n = len(entities)
     id_to_idx: Dict[str, int] = {}
     attr_vec = np.zeros((n, 3), dtype="float32")
@@ -427,7 +464,13 @@ def build_entity_batch_tensors(
 ) -> Tuple[Dict[str, Tensor], Tensor, List[str], Dict[str, int]]:
     with session_scope() as session:
         rows: List[Entity] = (
-            session.execute(select(Entity).where(Entity.entity_id.in_(entity_ids))).scalars().all()
+            session.execute(
+                select(Entity)
+                .where(Entity.entity_id.in_(entity_ids))
+                .order_by(Entity.entity_id.asc())
+            )
+            .scalars()
+            .all()
         )
 
     if not rows:
@@ -741,43 +784,98 @@ def run_training(config_path: Optional[Path] = None) -> Tuple[str, Dict[str, flo
     }
     run_id = _build_run_id(cfg, data_manifest)
     run_dir = artifacts_root / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
+    logs_path = str(run_dir / "training_log.jsonl")
+
+    # Persist a pending run record first so any partial artifact write can be
+    # detected and recovered without ambiguous state.
+    with session_scope() as session:
+        session.merge(
+            ModelRun(
+                run_id=run_id,
+                config=asdict(cfg),
+                metrics={},
+                model_sha256="pending",
+                data_manifest=data_manifest,
+                status="pending",  # type: ignore[assignment]
+                logs_path=logs_path,
+            )
+        )
 
     persist_started = perf_counter()
-    model_path = run_dir / "model.pt"
-    torch.save({"state_dict": model.state_dict(), "config": asdict(cfg)}, model_path)
-    model_bytes = model_path.read_bytes()
-    model_sha = hashlib.sha256(model_bytes).hexdigest()
+    try:
+        run_dir.mkdir(parents=True, exist_ok=True)
 
-    (run_dir / "config.json").write_text(json.dumps(asdict(cfg), indent=2))
-    (run_dir / "metrics.json").write_text(json.dumps(all_metrics, indent=2))
-    (run_dir / "data_manifest.json").write_text(json.dumps(data_manifest, indent=2))
-    (run_dir / "training_log.jsonl").write_text("training completed\n")
-    (run_dir / "model_sha256.txt").write_text(model_sha)
-    emit_performance_event(
-        "training.persist_artifacts",
-        duration_ms=(perf_counter() - persist_started) * 1000.0,
-        run_id=run_id,
-        run_dir=str(run_dir),
-    )
+        model_path = run_dir / "model.pt"
+        torch.save({"state_dict": model.state_dict(), "config": asdict(cfg)}, model_path)
+        model_bytes = model_path.read_bytes()
+        model_sha = hashlib.sha256(model_bytes).hexdigest()
 
-    db_started = perf_counter()
-    with session_scope() as session:
-        run = ModelRun(
+        (run_dir / "config.json").write_text(json.dumps(asdict(cfg), indent=2))
+        (run_dir / "metrics.json").write_text(json.dumps(all_metrics, indent=2))
+        (run_dir / "data_manifest.json").write_text(json.dumps(data_manifest, indent=2))
+        (run_dir / "training_log.jsonl").write_text("training completed\n")
+        (run_dir / "model_sha256.txt").write_text(model_sha)
+        emit_performance_event(
+            "training.persist_artifacts",
+            duration_ms=(perf_counter() - persist_started) * 1000.0,
             run_id=run_id,
-            config=asdict(cfg),
-            metrics=all_metrics,
-            model_sha256=model_sha,
-            data_manifest=data_manifest,
-            status="success",  # type: ignore[assignment]
-            logs_path=str(run_dir / "training_log.jsonl"),
+            run_dir=str(run_dir),
         )
-        session.merge(run)
-    emit_performance_event(
-        "training.persist_db",
-        duration_ms=(perf_counter() - db_started) * 1000.0,
-        run_id=run_id,
-    )
+
+        db_started = perf_counter()
+        with session_scope() as session:
+            run = session.get(ModelRun, run_id)
+            if run is None:
+                run = ModelRun(
+                    run_id=run_id,
+                    config=asdict(cfg),
+                    metrics=all_metrics,
+                    model_sha256=model_sha,
+                    data_manifest=data_manifest,
+                    status="success",  # type: ignore[assignment]
+                    logs_path=logs_path,
+                )
+            else:
+                run.config = asdict(cfg)
+                run.metrics = all_metrics
+                run.model_sha256 = model_sha
+                run.data_manifest = data_manifest
+                run.status = "success"  # type: ignore[assignment]
+                run.logs_path = logs_path
+            session.merge(run)
+        emit_performance_event(
+            "training.persist_db",
+            duration_ms=(perf_counter() - db_started) * 1000.0,
+            run_id=run_id,
+        )
+    except Exception as exc:
+        failure_manifest = dict(data_manifest)
+        failure_manifest["persistence_error"] = f"{type(exc).__name__}: {exc}"
+        with session_scope() as session:
+            run = session.get(ModelRun, run_id)
+            if run is None:
+                run = ModelRun(
+                    run_id=run_id,
+                    config=asdict(cfg),
+                    metrics={"persistence_failed": 1.0},
+                    model_sha256="failed",
+                    data_manifest=failure_manifest,
+                    status="failed",  # type: ignore[assignment]
+                    logs_path=logs_path,
+                )
+            else:
+                run.metrics = {"persistence_failed": 1.0}
+                run.model_sha256 = "failed"
+                run.data_manifest = failure_manifest
+                run.status = "failed"  # type: ignore[assignment]
+                run.logs_path = logs_path
+            session.merge(run)
+        emit_performance_event(
+            "training.persist_failed",
+            run_id=run_id,
+            error_type=type(exc).__name__,
+        )
+        raise
 
     emit_performance_event(
         "training.total",

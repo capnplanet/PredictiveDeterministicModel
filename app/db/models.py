@@ -66,7 +66,7 @@ class Interaction(Base):
 
 ArtifactType = Enum("image", "video", "audio", name="artifact_type")
 FeatureStatus = Enum("pending", "done", "failed", name="feature_status")
-RunStatus = Enum("success", "failed", name="run_status")
+RunStatus = Enum("pending", "success", "failed", name="run_status")
 AgentRunStatus = Enum(
     "pending",
     "planning",
@@ -85,6 +85,13 @@ AgentStepStatus = Enum(
     "failed",
     "skipped",
     name="agent_step_status",
+)
+TrainingTaskStatus = Enum(
+    "pending",
+    "running",
+    "success",
+    "failed",
+    name="training_task_status",
 )
 
 
@@ -121,6 +128,59 @@ class ModelRun(Base):
     __table_args__ = (
         UniqueConstraint("model_sha256", "run_id", name="uq_modelrun_modelsha_runid"),
     )
+
+
+class TrainingTask(Base):
+    __tablename__ = "training_tasks"
+
+    task_id = Column(String, primary_key=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    status = Column(TrainingTaskStatus, nullable=False, default="pending")
+    queue_name = Column(String, nullable=False, default="training")
+    idempotency_key = Column(String, nullable=True, unique=True)
+    request_payload = Column(JSON, nullable=False, default=dict)
+    celery_task_id = Column(String, nullable=True)
+    run_id = Column(String, ForeignKey("model_runs.run_id"), nullable=True)
+    error_message = Column(Text, nullable=True)
+
+    run = relationship("ModelRun")
+
+
+class FeatureExtractionTask(Base):
+    __tablename__ = "feature_extraction_tasks"
+
+    task_id = Column(String, primary_key=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    status = Column(TrainingTaskStatus, nullable=False, default="pending")
+    queue_name = Column(String, nullable=False, default="extraction")
+    idempotency_key = Column(String, nullable=True, unique=True)
+    request_payload = Column(JSON, nullable=False, default=dict)
+    celery_task_id = Column(String, nullable=True)
+    updated_artifacts = Column(Integer, nullable=True)
+    error_message = Column(Text, nullable=True)
+
+
+class BatchInferenceTask(Base):
+    __tablename__ = "batch_inference_tasks"
+
+    task_id = Column(String, primary_key=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    status = Column(TrainingTaskStatus, nullable=False, default="pending")
+    queue_name = Column(String, nullable=False, default="batch_inference")
+    idempotency_key = Column(String, nullable=True, unique=True)
+    request_payload = Column(JSON, nullable=False, default=dict)
+    celery_task_id = Column(String, nullable=True)
+    run_id = Column(String, ForeignKey("model_runs.run_id"), nullable=True)
+    result_payload = Column(JSON, nullable=True)
+    error_message = Column(Text, nullable=True)
+
+    run = relationship("ModelRun")
 
 
 class AgentRun(Base):

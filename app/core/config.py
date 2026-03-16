@@ -34,6 +34,53 @@ class Settings(BaseSettings):
         default=True,
         validation_alias=AliasChoices("agent_enforce_determinism", "AGENT_ENFORCE_DETERMINISM"),
     )
+    celery_enabled: bool = Field(default=False, validation_alias=AliasChoices("celery_enabled", "CELERY_ENABLED"))
+    celery_broker_url: str = Field(
+        default="redis://localhost:6379/0",
+        validation_alias=AliasChoices("celery_broker_url", "CELERY_BROKER_URL"),
+    )
+    celery_result_backend: str = Field(
+        default="redis://localhost:6379/1",
+        validation_alias=AliasChoices("celery_result_backend", "CELERY_RESULT_BACKEND"),
+    )
+    celery_task_always_eager: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("celery_task_always_eager", "CELERY_TASK_ALWAYS_EAGER"),
+    )
+    queue_training_name: str = Field(
+        default="training",
+        validation_alias=AliasChoices("queue_training_name", "QUEUE_TRAINING_NAME"),
+    )
+    queue_feature_extraction_name: str = Field(
+        default="extraction",
+        validation_alias=AliasChoices("queue_feature_extraction_name", "QUEUE_FEATURE_EXTRACTION_NAME"),
+    )
+    queue_batch_inference_name: str = Field(
+        default="batch_inference",
+        validation_alias=AliasChoices("queue_batch_inference_name", "QUEUE_BATCH_INFERENCE_NAME"),
+    )
+    queue_training_max_concurrency: int = Field(
+        default=2,
+        validation_alias=AliasChoices("queue_training_max_concurrency", "QUEUE_TRAINING_MAX_CONCURRENCY"),
+    )
+    queue_feature_extraction_max_concurrency: int = Field(
+        default=2,
+        validation_alias=AliasChoices(
+            "queue_feature_extraction_max_concurrency",
+            "QUEUE_FEATURE_EXTRACTION_MAX_CONCURRENCY",
+        ),
+    )
+    queue_batch_inference_max_concurrency: int = Field(
+        default=2,
+        validation_alias=AliasChoices(
+            "queue_batch_inference_max_concurrency",
+            "QUEUE_BATCH_INFERENCE_MAX_CONCURRENCY",
+        ),
+    )
+    async_fallback_sync_execution: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("async_fallback_sync_execution", "ASYNC_FALLBACK_SYNC_EXECUTION"),
+    )
 
     class Config:
         env_prefix = ""

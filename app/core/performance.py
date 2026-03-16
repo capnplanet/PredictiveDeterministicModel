@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextvars import ContextVar, Token
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,6 +9,31 @@ from time import perf_counter
 from typing import Any, Iterator
 
 from app.core.config import get_settings
+
+
+_correlation_id: ContextVar[str | None] = ContextVar("correlation_id", default=None)
+
+
+def get_correlation_id() -> str | None:
+    return _correlation_id.get()
+
+
+def set_correlation_id(correlation_id: str | None) -> Token[str | None]:
+    normalized = (correlation_id or "").strip() or None
+    return _correlation_id.set(normalized)
+
+
+def reset_correlation_id(token: Token[str | None]) -> None:
+    _correlation_id.reset(token)
+
+
+@contextmanager
+def correlation_scope(correlation_id: str | None) -> Iterator[None]:
+    token = set_correlation_id(correlation_id)
+    try:
+        yield
+    finally:
+        reset_correlation_id(token)
 
 
 def _to_jsonable(value: Any) -> Any:
@@ -41,6 +67,10 @@ def emit_performance_event(
     }
     if duration_ms is not None:
         payload["duration_ms"] = round(float(duration_ms), 3)
+    if "correlation_id" not in context:
+        current_correlation = get_correlation_id()
+        if current_correlation is not None:
+            payload["correlation_id"] = current_correlation
     payload.update({k: _to_jsonable(v) for k, v in context.items()})
 
     out_path = performance_metrics_path()

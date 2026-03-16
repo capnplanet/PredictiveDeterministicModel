@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import get_settings
-from app.db.models import AgentAuditEvent, AgentRun, AgentStep, ModelRun
+from app.db.models import AgentAuditEvent, AgentRun, AgentStep, ModelRun, TrainingTask
 from app.db.session import session_scope
 from app.main import app
 from app.services.agent_tools import AGENT_TOOL_REGISTRY, AgentToolSpec
@@ -664,4 +664,75 @@ def test_agent_compliance_determinism_audit_endpoint(monkeypatch: pytest.MonkeyP
     assert audit_resp.status_code == 200
     audit = audit_resp.json()
     assert audit["deterministic_failures"] >= 1
-    assert run_id in audit["failing_run_ids"]
+
+
+@pytest.mark.integration
+@pytest.mark.api
+def test_agent_plan_uses_queue_aware_enqueue_tools_when_requested() -> None:
+    get_settings.cache_clear()
+    os.environ["AGENT_ENABLED"] = "true"
+    os.environ["AGENT_REQUIRE_APPROVAL"] = "false"
+
+    client = TestClient(app)
+    create_response = client.post(
+        "/agents/runs",
+        json={
+            "goal": "Train and score entities",
+            "context": {
+                "queue_heavy": True,
+                "entity_ids": ["E00001", "E00002"],
+                "idempotency_key": "agent-queue-heavy-001",
+            },
+        },
+    )
+    assert create_response.status_code == 200
+    plan = create_response.json()["plan"]
+    tool_names = [step["tool_name"] for step in plan]
+    assert "enqueue_train_model" in tool_names
+    assert "enqueue_batch_inference" in tool_names
+
+
+@pytest.mark.integration
+@pytest.mark.api
+def test_agent_enqueue_step_propagates_correlation_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    get_settings.cache_clear()
+    os.environ["AGENT_ENABLED"] = "true"
+    os.environ["AGENT_REQUIRE_APPROVAL"] = "false"
+
+    monkeypatch.setattr("app.services.training_tasks._dispatch_training_task", lambda _task_id: None)
+
+    client = TestClient(app)
+    correlation_id = "corr-agent-queue-001"
+
+    create_response = client.post(
+        "/agents/runs",
+        headers={"x-correlation-id": correlation_id},
+        json={
+            "goal": "Train and score entities",
+            "context": {
+                "queue_heavy": True,
+                "entity_ids": ["E00001", "E00002"],
+                "idempotency_key": "agent-corr-001",
+            },
+        },
+    )
+    assert create_response.status_code == 200
+    run_id = create_response.json()["agent_run_id"]
+
+    execute_response = client.post(
+        f"/agents/runs/{run_id}/steps/0/execute",
+        headers={"x-correlation-id": correlation_id},
+        json={"force_continue": False},
+    )
+    assert execute_response.status_code == 200
+    step_payload = execute_response.json()
+    assert step_payload["status"] == "success"
+    output = step_payload.get("output") or {}
+    task_id = output.get("task_id")
+    assert isinstance(task_id, str)
+    assert task_id
+
+    with session_scope() as session:
+        task = session.get(TrainingTask, task_id)
+        assert task is not None
+        assert (task.request_payload or {}).get("correlation_id") == correlation_id

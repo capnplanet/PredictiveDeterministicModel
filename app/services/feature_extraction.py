@@ -34,7 +34,12 @@ def _feature_cache_path(sha256: str) -> Path:
 def extract_features_for_artifact(session: Session, artifact: Artifact) -> None:
     started = perf_counter()
     cache_path = _feature_cache_path(artifact.sha256)
-    if cache_path.exists() and artifact.feature_status == "done":  # type: ignore[comparison-overlap]
+    current_version_hash = compute_feature_version_hash()
+    if (
+        cache_path.exists()
+        and artifact.feature_status == "done"  # type: ignore[comparison-overlap]
+        and artifact.feature_version_hash == current_version_hash
+    ):
         emit_performance_event(
             "features.extract_artifact",
             duration_ms=(perf_counter() - started) * 1000.0,
@@ -55,9 +60,8 @@ def extract_features_for_artifact(session: Session, artifact: Artifact) -> None:
         raise FeatureExtractionError(f"Unsupported artifact_type {artifact.artifact_type}")
 
     cache_path.write_bytes(np.asarray(vec, dtype="float32").tobytes())
-    version_hash = compute_feature_version_hash()
     artifact.feature_dim = dim
-    artifact.feature_version_hash = version_hash
+    artifact.feature_version_hash = current_version_hash
     artifact.feature_status = "done"  # type: ignore[assignment]
     session.add(artifact)
     emit_performance_event(
@@ -73,7 +77,10 @@ def extract_features_for_artifact(session: Session, artifact: Artifact) -> None:
 def extract_features_for_pending(session: Session) -> int:
     started = perf_counter()
     pending: List[Artifact] = (
-        session.query(Artifact).filter(Artifact.feature_status == "pending").all()  # type: ignore[comparison-overlap]
+        session.query(Artifact)
+        .filter(Artifact.feature_status == "pending")  # type: ignore[comparison-overlap]
+        .order_by(Artifact.artifact_id.asc())
+        .all()
     )
     count = 0
     for art in pending:

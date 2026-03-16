@@ -11,15 +11,18 @@ from sqlalchemy import func, or_, select
 from app.api.schemas import (
     ArtifactAttribution,
     AttentionExplanation,
+    BatchInferenceTaskResponse,
+    BatchPredictEnqueueRequest,
     EntityExplanation,
     EntityPrediction,
     PredictRequest,
     PredictResponse,
 )
 from app.core.config import get_settings
-from app.core.performance import emit_performance_event, timed_performance_event
-from app.db.models import Artifact, Event, Interaction, ModelRun
+from app.core.performance import emit_performance_event, get_correlation_id, timed_performance_event
+from app.db.models import Artifact, BatchInferenceTask, Event, Interaction, ModelRun
 from app.db.session import session_scope
+from app.services.batch_inference_tasks import enqueue_batch_inference_task
 from app.services.llm_narrative import maybe_generate_long_narrative
 from app.training.model import EncoderConfig, FullModel
 from app.training.train import build_entity_batch_tensors
@@ -27,12 +30,34 @@ from app.training.train import build_entity_batch_tensors
 router = APIRouter(prefix="", tags=["predict"])
 
 
+def _batch_task_to_response(task: BatchInferenceTask) -> BatchInferenceTaskResponse:
+    result = None
+    if isinstance(task.result_payload, dict):
+        try:
+            result = PredictResponse.model_validate(task.result_payload)
+        except Exception:  # noqa: BLE001
+            result = None
+    return BatchInferenceTaskResponse(
+        task_id=task.task_id,
+        status=str(task.status),
+        queue_name=task.queue_name,
+        idempotency_key=task.idempotency_key,
+        correlation_id=(task.request_payload or {}).get("correlation_id"),
+        run_id=task.run_id,
+        result=result,
+        error_message=task.error_message,
+        created_at=task.created_at,
+        started_at=task.started_at,
+        completed_at=task.completed_at,
+    )
+
+
 def _load_latest_run_id(session) -> str:
     from pathlib import Path
 
     settings = get_settings()
     run_dir = Path(settings.artifacts_root)
-    runs = session.query(ModelRun).order_by(ModelRun.created_at.desc()).all()
+    runs = session.query(ModelRun).order_by(ModelRun.created_at.desc(), ModelRun.run_id.desc()).all()
     for run in runs:
         if (run_dir / run.run_id / "model.pt").exists():
             return run.run_id
@@ -370,4 +395,34 @@ async def predict(request: PredictRequest) -> PredictResponse:
         entities_with_neighbors=coverage.get("entities_with_neighbors", 0),
         entities_with_artifacts=coverage.get("entities_with_artifacts", 0),
     )
-    return PredictResponse(run_id=run_id, predictions=preds)
+    return PredictResponse(run_id=run_id, predictions=preds, correlation_id=get_correlation_id())
+
+
+@router.post("/predict/async", response_model=BatchInferenceTaskResponse)
+async def enqueue_batch_predict(request: BatchPredictEnqueueRequest) -> BatchInferenceTaskResponse:
+    if not request.entity_ids:
+        raise HTTPException(status_code=400, detail="entity_ids must be non-empty")
+
+    payload = {
+        "entity_ids": [str(v) for v in request.entity_ids],
+        "run_id": request.run_id,
+        "explanations": bool(request.explanations),
+        "narrative_mode": request.narrative_mode,
+        "correlation_id": get_correlation_id(),
+    }
+    task_id, _ = enqueue_batch_inference_task(payload, idempotency_key=request.idempotency_key)
+
+    with session_scope() as session:
+        task = session.get(BatchInferenceTask, task_id)
+        if task is None:
+            raise RuntimeError(f"Batch inference task not found after enqueue: {task_id}")
+        return _batch_task_to_response(task)
+
+
+@router.get("/predict/async/{task_id}", response_model=BatchInferenceTaskResponse)
+async def get_batch_predict_task(task_id: str) -> BatchInferenceTaskResponse:
+    with session_scope() as session:
+        task = session.get(BatchInferenceTask, task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail=f"Batch inference task not found: {task_id}")
+        return _batch_task_to_response(task)

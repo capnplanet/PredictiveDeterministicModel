@@ -71,6 +71,7 @@ def _run_to_response(run: AgentRun, steps: List[AgentStep]) -> AgentRunResponse:
 def _plan_steps(goal: str, context: Dict[str, Any], max_steps: int) -> List[Dict[str, Any]]:
     steps: List[Dict[str, Any]] = []
     lowered = goal.lower()
+    queue_heavy = bool(context.get("queue_heavy", False))
 
     run_id = context.get("run_id")
     entity_ids = context.get("entity_ids")
@@ -81,9 +82,10 @@ def _plan_steps(goal: str, context: Dict[str, Any], max_steps: int) -> List[Dict
     if "train" in lowered or "retrain" in lowered:
         steps.append(
             {
-                "tool_name": "train_model",
+                "tool_name": "enqueue_train_model" if queue_heavy else "train_model",
                 "arguments": {
                     "config_path": str(config_path) if isinstance(config_path, str) and config_path.strip() else None,
+                    "idempotency_key": str(context.get("idempotency_key", "")).strip() or None,
                 },
             }
         )
@@ -101,14 +103,25 @@ def _plan_steps(goal: str, context: Dict[str, Any], max_steps: int) -> List[Dict
         if ids:
             steps.append(
                 {
-                    "tool_name": "predict_entities",
+                    "tool_name": "enqueue_batch_inference" if queue_heavy else "predict_entities",
                     "arguments": {
                         "entity_ids": ids,
                         "run_id": run_id if isinstance(run_id, str) and run_id.strip() else None,
                         "narrative_mode": "template",
+                        "idempotency_key": str(context.get("idempotency_key", "")).strip() or None,
                     },
                 }
             )
+
+    if queue_heavy and bool(context.get("extract_features", False)):
+        steps.append(
+            {
+                "tool_name": "enqueue_feature_extraction",
+                "arguments": {
+                    "idempotency_key": str(context.get("idempotency_key", "")).strip() or None,
+                },
+            }
+        )
 
     if "query" in lowered or "search" in lowered:
         query_value = query_text if isinstance(query_text, str) and query_text.strip() else goal

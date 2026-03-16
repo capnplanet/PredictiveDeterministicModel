@@ -30,6 +30,7 @@ class ArtifactIngestionReport:
 
 _MAX_ROWS = 100_000
 _MAX_FILE_BYTES = 200 * 1024 * 1024
+_DEFAULT_CHUNK_SIZE = 250
 
 
 def _artifacts_root() -> Path:
@@ -53,6 +54,24 @@ def _compute_sha256(path: Path) -> str:
         for chunk in iter(lambda: f.read(8192), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def _load_checkpoint(path: Path) -> int:
+    if not path.exists():
+        return 0
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return max(0, int(payload.get("last_processed_row", 0)))
+    except Exception as exc:  # noqa: BLE001
+        raise ArtifactIngestionError(f"Invalid checkpoint file: {path}: {exc}") from exc
+
+
+def _write_checkpoint(path: Path, last_processed_row: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"last_processed_row": int(max(0, last_processed_row))}, sort_keys=True),
+        encoding="utf-8",
+    )
 
 
 def ingest_artifact_file(
@@ -102,19 +121,36 @@ def ingest_artifact_file(
     return artifact
 
 
-def ingest_artifacts_manifest(session: Session, manifest_path: Path) -> ArtifactIngestionReport:
+def ingest_artifacts_manifest(
+    session: Session,
+    manifest_path: Path,
+    *,
+    chunk_size: int = _DEFAULT_CHUNK_SIZE,
+    checkpoint_path: Path | None = None,
+    resume_from_checkpoint: bool = True,
+) -> ArtifactIngestionReport:
     started = perf_counter()
     if not manifest_path.exists():
         raise ArtifactIngestionError(f"Manifest not found: {manifest_path}")
+    if chunk_size <= 0:
+        raise ArtifactIngestionError("chunk_size must be > 0")
 
     total = success = failed = 0
     errors: List[str] = []
+    checkpoint_row = (
+        _load_checkpoint(checkpoint_path) if checkpoint_path is not None and resume_from_checkpoint else 0
+    )
+    last_processed_row = checkpoint_row
+    flush_counter = 0
 
     with manifest_path.open("r", newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
-        for row in reader:
+        for row_number, row in enumerate(reader, start=1):
+            if row_number <= checkpoint_row:
+                continue
+
             total += 1
-            if total > _MAX_ROWS:
+            if row_number > _MAX_ROWS:
                 raise ArtifactIngestionError(f"Row limit exceeded: {_MAX_ROWS}")
             try:
                 atype = row["artifact_type"].strip()
@@ -136,9 +172,23 @@ def ingest_artifacts_manifest(session: Session, manifest_path: Path) -> Artifact
                     metadata=metadata,
                 )
                 success += 1
+                flush_counter += 1
             except Exception as exc:  # noqa: BLE001
                 failed += 1
                 errors.append(f"Row {total}: {exc}")
+            finally:
+                last_processed_row = row_number
+
+            if flush_counter >= int(chunk_size):
+                session.flush()
+                flush_counter = 0
+                if checkpoint_path is not None:
+                    _write_checkpoint(checkpoint_path, last_processed_row)
+
+    if success:
+        session.flush()
+    if checkpoint_path is not None:
+        _write_checkpoint(checkpoint_path, last_processed_row)
 
     duration_ms = (perf_counter() - started) * 1000.0
     throughput = (success / max(duration_ms / 1000.0, 1e-9)) if success else 0.0
@@ -149,6 +199,8 @@ def ingest_artifacts_manifest(session: Session, manifest_path: Path) -> Artifact
         total_rows=total,
         success_rows=success,
         failed_rows=failed,
+        chunk_size=int(chunk_size),
+        resumed_from_row=checkpoint_row,
         throughput_rows_per_sec=round(throughput, 3),
     )
     return ArtifactIngestionReport(total_rows=total, success_rows=success, failed_rows=failed, errors=errors)

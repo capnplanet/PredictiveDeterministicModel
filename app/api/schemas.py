@@ -40,6 +40,42 @@ class TrainRequest(BaseModel):
 class TrainResponse(BaseModel):
     run_id: str
     metrics: Dict[str, float]
+    correlation_id: Optional[str] = None
+
+
+class TrainEnqueueRequest(BaseModel):
+    config: Optional[TrainConfigModel] = None
+    idempotency_key: Optional[str] = Field(default=None, min_length=1, max_length=128)
+
+
+class TrainTaskResponse(BaseModel):
+    task_id: str
+    status: Literal["pending", "running", "success", "failed"]
+    queue_name: str
+    idempotency_key: Optional[str] = None
+    correlation_id: Optional[str] = None
+    run_id: Optional[str] = None
+    error_message: Optional[str] = None
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+
+class FeatureExtractionEnqueueRequest(BaseModel):
+    idempotency_key: Optional[str] = Field(default=None, min_length=1, max_length=128)
+
+
+class FeatureExtractionTaskResponse(BaseModel):
+    task_id: str
+    status: Literal["pending", "running", "success", "failed"]
+    queue_name: str
+    idempotency_key: Optional[str] = None
+    correlation_id: Optional[str] = None
+    updated_artifacts: Optional[int] = None
+    error_message: Optional[str] = None
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
 
 
 class RunInfo(BaseModel):
@@ -97,6 +133,29 @@ class EntityPrediction(BaseModel):
 class PredictResponse(BaseModel):
     run_id: str
     predictions: List[EntityPrediction]
+    correlation_id: Optional[str] = None
+
+
+class BatchPredictEnqueueRequest(BaseModel):
+    entity_ids: List[str] = Field(..., description="Entity IDs to predict for")
+    run_id: Optional[str] = Field(None, description="Specific run to use; latest if omitted")
+    explanations: bool = Field(False, description="Whether to compute explanations")
+    narrative_mode: Literal["template", "llm", "both"] = "template"
+    idempotency_key: Optional[str] = Field(default=None, min_length=1, max_length=128)
+
+
+class BatchInferenceTaskResponse(BaseModel):
+    task_id: str
+    status: Literal["pending", "running", "success", "failed"]
+    queue_name: str
+    idempotency_key: Optional[str] = None
+    correlation_id: Optional[str] = None
+    run_id: Optional[str] = None
+    result: Optional[PredictResponse] = None
+    error_message: Optional[str] = None
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
 
 
 class QueryRequest(BaseModel):
