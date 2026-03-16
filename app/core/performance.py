@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 import json
-from contextvars import ContextVar, Token
 from contextlib import contextmanager
+from contextvars import ContextVar, Token
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Iterator
 
 from app.core.config import get_settings
-
 
 _correlation_id: ContextVar[str | None] = ContextVar("correlation_id", default=None)
 
