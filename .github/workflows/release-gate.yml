@@ -72,6 +72,21 @@ jobs:
 
       - name: Performance smoke gate
         run: |
+          PYTHONPATH=. python - <<'PY'
+          from app.core.performance import emit_performance_event
+
+          # Tests often write metrics to isolated temp data roots; seed one
+          # canonical event so the smoke report always validates instrumentation wiring.
+          emit_performance_event(
+              "api.request",
+              status="ok",
+              duration_ms=1.0,
+              method="GET",
+              path="/health/",
+              status_code=200,
+          )
+          PY
+
           PYTHONPATH=. python -m app.cli performance-report
           python - <<'PY'
           import json
