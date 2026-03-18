@@ -400,7 +400,10 @@ async def predict(request: PredictRequest) -> PredictResponse:
 
 
 @router.post("/predict/async", response_model=BatchInferenceTaskResponse)
-async def enqueue_batch_predict(request: BatchPredictEnqueueRequest, http_request: Request) -> BatchInferenceTaskResponse:
+async def enqueue_batch_predict(
+    request: BatchPredictEnqueueRequest,
+    http_request: Request,
+) -> BatchInferenceTaskResponse:
     if not request.entity_ids:
         raise HTTPException(status_code=400, detail="entity_ids must be non-empty")
 
