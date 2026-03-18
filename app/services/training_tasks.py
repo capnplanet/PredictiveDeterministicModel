@@ -119,6 +119,7 @@ def enqueue_training_task(
     config_payload: Optional[Dict[str, Any]],
     idempotency_key: Optional[str],
     correlation_id: Optional[str] = None,
+    principal_context: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, bool]:
     normalized_key = (idempotency_key or "").strip() or None
 
@@ -146,6 +147,7 @@ def enqueue_training_task(
             request_payload={
                 "config": config_payload or {},
                 "correlation_id": (correlation_id or "").strip() or None,
+                "principal_context": dict(principal_context or {}),
             },
         )
         session.add(task)

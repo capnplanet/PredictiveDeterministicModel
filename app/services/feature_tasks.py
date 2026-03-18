@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 import uuid
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from sqlalchemy import select
 
@@ -100,6 +100,7 @@ def _dispatch_feature_extraction_task(task_id: str) -> Optional[str]:
 def enqueue_feature_extraction_task(
     idempotency_key: Optional[str],
     correlation_id: Optional[str] = None,
+    principal_context: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, bool]:
     normalized_key = (idempotency_key or "").strip() or None
 
@@ -124,7 +125,10 @@ def enqueue_feature_extraction_task(
             status="pending",  # type: ignore[assignment]
             queue_name=settings.queue_feature_extraction_name,
             idempotency_key=normalized_key,
-            request_payload={"correlation_id": (correlation_id or "").strip() or None},
+            request_payload={
+                "correlation_id": (correlation_id or "").strip() or None,
+                "principal_context": dict(principal_context or {}),
+            },
         )
         session.add(task)
 

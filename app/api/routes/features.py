@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from app.api.schemas import FeatureExtractionEnqueueRequest, FeatureExtractionTaskResponse
 from app.core.performance import get_correlation_id
+from app.core.security import principal_from_request, principal_to_context
 from app.db.models import FeatureExtractionTask
 from app.db.session import session_scope
 from app.services.feature_extraction import extract_features_for_pending
@@ -20,10 +21,15 @@ async def extract_pending_features() -> dict:
 
 
 @router.post("/extract/async", response_model=FeatureExtractionTaskResponse)
-async def enqueue_extract_pending_features(request: FeatureExtractionEnqueueRequest) -> FeatureExtractionTaskResponse:
+async def enqueue_extract_pending_features(
+    request: FeatureExtractionEnqueueRequest,
+    http_request: Request,
+) -> FeatureExtractionTaskResponse:
+    principal_context = principal_to_context(principal_from_request(http_request))
     task_id, _ = enqueue_feature_extraction_task(
         idempotency_key=request.idempotency_key,
         correlation_id=get_correlation_id(),
+        principal_context=principal_context,
     )
 
     with session_scope() as session:

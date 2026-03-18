@@ -70,6 +70,9 @@ jobs:
       - name: Async orchestration and queue telemetry gate
         run: PYTHONPATH=. pytest -q -m "api and integration" -k "async or queue_health or checkpoint or correlation"
 
+      - name: Security authn/authz gate
+        run: PYTHONPATH=. pytest -q app/tests/test_auth_security.py
+
       - name: Performance smoke gate
         run: |
           PYTHONPATH=. python - <<'PY'

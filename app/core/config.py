@@ -81,6 +81,39 @@ class Settings(BaseSettings):
         default=True,
         validation_alias=AliasChoices("async_fallback_sync_execution", "ASYNC_FALLBACK_SYNC_EXECUTION"),
     )
+    auth_enabled: bool = Field(default=False, validation_alias=AliasChoices("auth_enabled", "AUTH_ENABLED"))
+    auth_enforcement_mode: str = Field(
+        default="enforce",
+        validation_alias=AliasChoices("auth_enforcement_mode", "AUTH_ENFORCEMENT_MODE"),
+    )
+    auth_public_paths: str = Field(
+        default="/health/,/docs,/openapi.json,/redoc",
+        validation_alias=AliasChoices("auth_public_paths", "AUTH_PUBLIC_PATHS"),
+    )
+    auth_jwt_hs256_secret: str = Field(
+        default="",
+        validation_alias=AliasChoices("auth_jwt_hs256_secret", "AUTH_JWT_HS256_SECRET"),
+    )
+    auth_oidc_jwks_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("auth_oidc_jwks_url", "AUTH_OIDC_JWKS_URL"),
+    )
+    auth_oidc_issuer: str = Field(
+        default="",
+        validation_alias=AliasChoices("auth_oidc_issuer", "AUTH_OIDC_ISSUER"),
+    )
+    auth_oidc_audience: str = Field(
+        default="",
+        validation_alias=AliasChoices("auth_oidc_audience", "AUTH_OIDC_AUDIENCE"),
+    )
+    auth_jwt_algorithms: str = Field(
+        default="RS256",
+        validation_alias=AliasChoices("auth_jwt_algorithms", "AUTH_JWT_ALGORITHMS"),
+    )
+    auth_service_tokens: str = Field(
+        default="",
+        validation_alias=AliasChoices("auth_service_tokens", "AUTH_SERVICE_TOKENS"),
+    )
 
     class Config:
         env_prefix = ""

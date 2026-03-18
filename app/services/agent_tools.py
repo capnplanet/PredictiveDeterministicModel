@@ -125,6 +125,12 @@ async def _tool_enqueue_train_model(arguments: Dict[str, Any]) -> Dict[str, Any]
         config_payload=config_dict,
         idempotency_key=str(idempotency_key) if isinstance(idempotency_key, str) else None,
         correlation_id=get_correlation_id(),
+        principal_context={
+            "subject": "agent",
+            "principal_type": "service",
+            "roles": ["service"],
+            "scopes": ["service"],
+        },
     )
     return {
         "task_id": task_id,
@@ -143,6 +149,12 @@ async def _tool_enqueue_batch_inference(arguments: Dict[str, Any]) -> Dict[str, 
         "explanations": bool(arguments.get("explanations", False)),
         "narrative_mode": str(arguments.get("narrative_mode", "template")),
         "correlation_id": get_correlation_id(),
+        "principal_context": {
+            "subject": "agent",
+            "principal_type": "service",
+            "roles": ["service"],
+            "scopes": ["service"],
+        },
     }
     idempotency_key = arguments.get("idempotency_key")
     task_id, reused = enqueue_batch_inference_task(
@@ -161,6 +173,12 @@ async def _tool_enqueue_feature_extraction(arguments: Dict[str, Any]) -> Dict[st
     task_id, reused = enqueue_feature_extraction_task(
         idempotency_key=str(idempotency_key) if isinstance(idempotency_key, str) else None,
         correlation_id=get_correlation_id(),
+        principal_context={
+            "subject": "agent",
+            "principal_type": "service",
+            "roles": ["service"],
+            "scopes": ["service"],
+        },
     )
     return {
         "task_id": task_id,

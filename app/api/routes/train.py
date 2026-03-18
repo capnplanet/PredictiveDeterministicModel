@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import select
 
 from app.api.schemas import (
@@ -13,6 +13,7 @@ from app.api.schemas import (
     TrainTaskResponse,
 )
 from app.core.performance import get_correlation_id, timed_performance_event
+from app.core.security import principal_from_request, principal_to_context
 from app.db.models import ModelRun, TrainingTask
 from app.db.session import session_scope
 from app.services.training_tasks import enqueue_training_task
@@ -45,11 +46,13 @@ async def train_model(request: TrainRequest) -> TrainResponse:
 
 
 @router.post("/train/async", response_model=TrainTaskResponse)
-async def enqueue_train_model(request: TrainEnqueueRequest) -> TrainTaskResponse:
+async def enqueue_train_model(request: TrainEnqueueRequest, http_request: Request) -> TrainTaskResponse:
+    principal_context = principal_to_context(principal_from_request(http_request))
     task_id, _ = enqueue_training_task(
         config_payload=request.config.model_dump() if request.config is not None else None,
         idempotency_key=request.idempotency_key,
         correlation_id=get_correlation_id(),
+        principal_context=principal_context,
     )
 
     with session_scope() as session:

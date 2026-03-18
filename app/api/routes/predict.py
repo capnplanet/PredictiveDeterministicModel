@@ -5,7 +5,7 @@ from time import perf_counter
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import func, or_, select
 
 from app.api.schemas import (
@@ -20,6 +20,7 @@ from app.api.schemas import (
 )
 from app.core.config import get_settings
 from app.core.performance import emit_performance_event, get_correlation_id, timed_performance_event
+from app.core.security import principal_from_request, principal_to_context
 from app.db.models import Artifact, BatchInferenceTask, Event, Interaction, ModelRun
 from app.db.session import session_scope
 from app.services.batch_inference_tasks import enqueue_batch_inference_task
@@ -399,16 +400,18 @@ async def predict(request: PredictRequest) -> PredictResponse:
 
 
 @router.post("/predict/async", response_model=BatchInferenceTaskResponse)
-async def enqueue_batch_predict(request: BatchPredictEnqueueRequest) -> BatchInferenceTaskResponse:
+async def enqueue_batch_predict(request: BatchPredictEnqueueRequest, http_request: Request) -> BatchInferenceTaskResponse:
     if not request.entity_ids:
         raise HTTPException(status_code=400, detail="entity_ids must be non-empty")
 
+    principal_context = principal_to_context(principal_from_request(http_request))
     payload = {
         "entity_ids": [str(v) for v in request.entity_ids],
         "run_id": request.run_id,
         "explanations": bool(request.explanations),
         "narrative_mode": request.narrative_mode,
         "correlation_id": get_correlation_id(),
+        "principal_context": principal_context,
     }
     task_id, _ = enqueue_batch_inference_task(payload, idempotency_key=request.idempotency_key)
 
